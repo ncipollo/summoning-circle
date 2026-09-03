@@ -1,0 +1,12 @@
+[package]
+name = "summoning-circle"
+description = "Summon your processes and ensure they can never die"
+edition = "2024"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/ncipollo/summoning-circle"
+version = "0.1.0"
+
+[dependencies]
+
+[dev-dependencies]
