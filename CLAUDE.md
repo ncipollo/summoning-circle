@@ -6,6 +6,7 @@ Run the following commands after every code change and fix any issues before con
 1. `cargo fmt` - Format all code
 2. `cargo test` - Run all tests
 3. `cargo clippy` - Run linter; fix all warnings and errors before completing the change
+4. `git diff --name-only --diff-filter=d main... | smell -q -` - Check complexity/size limits from `smell.toml` against the diff; if it flags anything, use the `cleanup-code` skill to resolve it (never suppress)
 
 ### Fixing Clippy Complexity Warnings
 When clippy reports `cognitive_complexity`, `too_many_lines`, or `too_many_arguments` warnings, fix them by refactoring — never suppress with `#[allow]`:

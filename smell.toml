@@ -1,0 +1,16 @@
+[[rule]]
+name = "default"
+include = ["*.rs"]
+
+exclude = [
+  "**/target/**",
+  "**/mutants.out*/**",
+  "**/.exp/**",
+  "**/.idea/**",
+  "**/tests.rs",
+]
+
+max_complexity = 12
+max_methods = 20
+max_lines = 700
+max_declarations = 32
