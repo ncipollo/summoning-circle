@@ -21,3 +21,6 @@ Never use `mod.rs`. Always use the modern Rust style: create a top-level file (e
 
 ## Imports
 Always use `use` imports rather than full crate paths at call sites. For example, prefer `use crate::game::engagement;` + `engagement::process(...)` over `crate::game::engagement::process(...)`.
+
+## Tests
+Keep unit tests in the same file as the code they test, in a `#[cfg(test)] mod tests { ... }` block. Do not create separate `tests.rs` files.
