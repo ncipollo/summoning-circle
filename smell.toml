@@ -7,7 +7,6 @@ exclude = [
   "**/mutants.out*/**",
   "**/.exp/**",
   "**/.idea/**",
-  "**/tests.rs",
 ]
 
 max_complexity = 12
