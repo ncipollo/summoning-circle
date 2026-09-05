@@ -1,5 +1,14 @@
 # Summoning Circle
 
+## Architecture
+
+The code is broken down into two layers:
+
+- `cli` — The view layer, built with clap. `main` calls the top-level router in this module; each
+  command gets its own file and is called from the router. No actual logic lives in this layer.
+- `feature` — Where all domain logic lives, organized as one subfolder per feature (e.g.
+  `feature/config`). The cli layer calls through to feature.
+
 ## After Each Change
 Run the following commands after every code change and fix any issues before considering the change complete:
 
@@ -24,3 +33,6 @@ Always use `use` imports rather than full crate paths at call sites. For example
 
 ## Tests
 Keep unit tests in the same file as the code they test, in a `#[cfg(test)] mod tests { ... }` block. Do not create separate `tests.rs` files.
+
+## Commit Messages
+Prefix the first commit of a ticket/issue's work with `Resolves #<issue>` (e.g., `Resolves #4 Add config file loading`).
