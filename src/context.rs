@@ -1,0 +1,33 @@
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context as _, Result};
+
+const DATA_DIR_NAME: &str = ".summoning-circle";
+const CONFIG_FILE_NAME: &str = "config.toml";
+
+/// Paths resolved once at startup and shared by every subcommand.
+pub struct Context {
+    pub config_path: PathBuf,
+    pub data_dir: PathBuf,
+}
+
+impl Context {
+    pub fn new(config_override: Option<PathBuf>) -> Result<Self> {
+        let home =
+            dirs::home_dir().context("could not resolve the current user's home directory")?;
+        Ok(Self::from_home(&home, config_override))
+    }
+
+    fn from_home(home: &Path, config_override: Option<PathBuf>) -> Self {
+        let data_dir = home.join(DATA_DIR_NAME);
+        let config_path = config_override.unwrap_or_else(|| data_dir.join(CONFIG_FILE_NAME));
+
+        Self {
+            config_path,
+            data_dir,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;
