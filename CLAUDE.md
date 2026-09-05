@@ -24,3 +24,6 @@ Always use `use` imports rather than full crate paths at call sites. For example
 
 ## Tests
 Keep unit tests in the same file as the code they test, in a `#[cfg(test)] mod tests { ... }` block. Do not create separate `tests.rs` files.
+
+## Commit Messages
+Prefix the first commit of a ticket/issue's work with `Resolves #<issue>` (e.g., `Resolves #4 Add config file loading`).
