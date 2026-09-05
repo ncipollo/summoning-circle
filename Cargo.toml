@@ -8,5 +8,7 @@ repository = "https://github.com/ncipollo/summoning-circle"
 version = "0.1.0"
 
 [dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.6", features = ["derive"] }
 
 [dev-dependencies]
