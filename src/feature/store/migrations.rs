@@ -1,17 +1,7 @@
 use anyhow::{Context as _, Result};
 use rusqlite::Connection;
 
-const MIGRATIONS: &[&str] = &["CREATE TABLE IF NOT EXISTS processes (
-        name           TEXT PRIMARY KEY,
-        kind           TEXT NOT NULL,
-        command        TEXT NOT NULL,
-        pid            INTEGER,
-        status         TEXT NOT NULL,
-        restart_count  INTEGER NOT NULL DEFAULT 0,
-        last_exit_code INTEGER,
-        started_at     TEXT,
-        updated_at     TEXT NOT NULL
-    )"];
+const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_create_processes.sql")];
 
 /// Applies any migrations that have not yet run, tracked by `schema_version`.
 pub(super) fn apply(conn: &Connection) -> Result<()> {

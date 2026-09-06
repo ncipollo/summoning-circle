@@ -71,29 +71,49 @@ impl ProcessRecord {
     }
 
     pub(super) fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
-        let status: String = row.get("status")?;
-        let pid: Option<i64> = row.get("pid")?;
-        let restart_count: i64 = row.get("restart_count")?;
-        let started_at: Option<String> = row.get("started_at")?;
-        let updated_at: String = row.get("updated_at")?;
-
         Ok(Self {
             name: row.get("name")?,
             kind: row.get("kind")?,
             command: row.get("command")?,
-            pid: pid.map(|pid| pid as u32),
-            status: status
-                .parse()
-                .map_err(|error: anyhow::Error| rusqlite_error(error))?,
-            restart_count: restart_count as u32,
+            pid: read_pid(row)?,
+            status: read_status(row)?,
+            restart_count: read_restart_count(row)?,
             last_exit_code: row.get("last_exit_code")?,
-            started_at: started_at
-                .map(|value| parse_timestamp(&value))
-                .transpose()
-                .map_err(rusqlite_error)?,
-            updated_at: parse_timestamp(&updated_at).map_err(rusqlite_error)?,
+            started_at: read_optional_timestamp(row, "started_at")?,
+            updated_at: read_timestamp(row, "updated_at")?,
         })
     }
+}
+
+fn read_pid(row: &Row<'_>) -> rusqlite::Result<Option<u32>> {
+    let pid: Option<i64> = row.get("pid")?;
+    Ok(pid.map(|pid| pid as u32))
+}
+
+fn read_restart_count(row: &Row<'_>) -> rusqlite::Result<u32> {
+    let restart_count: i64 = row.get("restart_count")?;
+    Ok(restart_count as u32)
+}
+
+fn read_status(row: &Row<'_>) -> rusqlite::Result<ProcessStatus> {
+    let status: String = row.get("status")?;
+    status.parse().map_err(rusqlite_error)
+}
+
+fn read_timestamp(row: &Row<'_>, column: &'static str) -> rusqlite::Result<DateTime<Utc>> {
+    let value: String = row.get(column)?;
+    parse_timestamp(&value).map_err(rusqlite_error)
+}
+
+fn read_optional_timestamp(
+    row: &Row<'_>,
+    column: &'static str,
+) -> rusqlite::Result<Option<DateTime<Utc>>> {
+    let value: Option<String> = row.get(column)?;
+    value
+        .map(|value| parse_timestamp(&value))
+        .transpose()
+        .map_err(rusqlite_error)
 }
 
 fn parse_timestamp(value: &str) -> Result<DateTime<Utc>> {
