@@ -2,9 +2,10 @@ use std::str::FromStr;
 
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
-use rusqlite::Row;
+use sqlx::FromRow;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
 pub enum ProcessStatus {
     Starting,
     Running,
@@ -37,7 +38,7 @@ impl FromStr for ProcessStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
 pub struct ProcessRecord {
     pub name: String,
     pub kind: String,
@@ -69,59 +70,6 @@ impl ProcessRecord {
             updated_at: Utc::now(),
         }
     }
-
-    pub(super) fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
-        Ok(Self {
-            name: row.get("name")?,
-            kind: row.get("kind")?,
-            command: row.get("command")?,
-            pid: read_pid(row)?,
-            status: read_status(row)?,
-            restart_count: read_restart_count(row)?,
-            last_exit_code: row.get("last_exit_code")?,
-            started_at: read_optional_timestamp(row, "started_at")?,
-            updated_at: read_timestamp(row, "updated_at")?,
-        })
-    }
-}
-
-fn read_pid(row: &Row<'_>) -> rusqlite::Result<Option<u32>> {
-    let pid: Option<i64> = row.get("pid")?;
-    Ok(pid.map(|pid| pid as u32))
-}
-
-fn read_restart_count(row: &Row<'_>) -> rusqlite::Result<u32> {
-    let restart_count: i64 = row.get("restart_count")?;
-    Ok(restart_count as u32)
-}
-
-fn read_status(row: &Row<'_>) -> rusqlite::Result<ProcessStatus> {
-    let status: String = row.get("status")?;
-    status.parse().map_err(rusqlite_error)
-}
-
-fn read_timestamp(row: &Row<'_>, column: &'static str) -> rusqlite::Result<DateTime<Utc>> {
-    let value: String = row.get(column)?;
-    parse_timestamp(&value).map_err(rusqlite_error)
-}
-
-fn read_optional_timestamp(
-    row: &Row<'_>,
-    column: &'static str,
-) -> rusqlite::Result<Option<DateTime<Utc>>> {
-    let value: Option<String> = row.get(column)?;
-    value
-        .map(|value| parse_timestamp(&value))
-        .transpose()
-        .map_err(rusqlite_error)
-}
-
-fn parse_timestamp(value: &str) -> Result<DateTime<Utc>> {
-    Ok(DateTime::parse_from_rfc3339(value)?.with_timezone(&Utc))
-}
-
-fn rusqlite_error(error: anyhow::Error) -> rusqlite::Error {
-    rusqlite::Error::ToSqlConversionFailure(error.into())
 }
 
 #[cfg(test)]
