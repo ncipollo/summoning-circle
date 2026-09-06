@@ -29,7 +29,7 @@ pub enum Command {
     Ps,
 }
 
-pub fn route(cli: Cli) -> Result<()> {
+pub async fn route(cli: Cli) -> Result<()> {
     let context = Context::new(cli.config)?;
 
     match cli.command {

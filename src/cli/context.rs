@@ -4,11 +4,13 @@ use anyhow::{Context as _, Result};
 
 const DATA_DIR_NAME: &str = ".summoning-circle";
 const CONFIG_FILE_NAME: &str = "config.toml";
+const DB_FILE_NAME: &str = "circle.db";
 
 /// Paths resolved once at startup and shared by every subcommand.
 pub struct Context {
     pub config_path: PathBuf,
     pub data_dir: PathBuf,
+    pub db_path: PathBuf,
 }
 
 impl Context {
@@ -21,10 +23,12 @@ impl Context {
     fn from_home(home: &Path, config_override: Option<PathBuf>) -> Self {
         let data_dir = home.join(DATA_DIR_NAME);
         let config_path = config_override.unwrap_or_else(|| data_dir.join(CONFIG_FILE_NAME));
+        let db_path = data_dir.join(DB_FILE_NAME);
 
         Self {
             config_path,
             data_dir,
+            db_path,
         }
     }
 }
@@ -45,6 +49,10 @@ mod tests {
             context.data_dir,
             PathBuf::from("/home/user/.summoning-circle")
         );
+        assert_eq!(
+            context.db_path,
+            PathBuf::from("/home/user/.summoning-circle/circle.db")
+        );
     }
 
     #[test]
@@ -58,6 +66,10 @@ mod tests {
         assert_eq!(
             context.data_dir,
             PathBuf::from("/home/user/.summoning-circle")
+        );
+        assert_eq!(
+            context.db_path,
+            PathBuf::from("/home/user/.summoning-circle/circle.db")
         );
     }
 }
