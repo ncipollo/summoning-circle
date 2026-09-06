@@ -1,0 +1,4 @@
+[advisories]
+# rsa: Marvin Attack — indirect dep via sqlx-mysql, which is locked but never compiled
+# (this project only enables sqlx's sqlite driver). No upstream fix available.
+ignore = ["RUSTSEC-2023-0071"]
