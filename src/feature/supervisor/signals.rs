@@ -21,9 +21,20 @@ pub async fn listen(shutdown: watch::Sender<bool>) -> Result<()> {
     Ok(())
 }
 
-/// Asks `pid` to shut down gracefully.
+/// Asks `pid`'s whole process group to shut down gracefully.
 pub fn terminate(pid: u32) {
-    if let Err(error) = signal::kill(Pid::from_raw(pid as i32), Signal::SIGTERM) {
-        warn!(pid, %error, "could not send SIGTERM");
+    send_to_group(pid, Signal::SIGTERM);
+}
+
+/// Forces `pid`'s whole process group to exit immediately.
+pub fn kill(pid: u32) {
+    send_to_group(pid, Signal::SIGKILL);
+}
+
+/// Sends `sig` to the process group led by `pid`, which each child is spawned into so that any
+/// processes it forks are signaled too, not just the tracked pid itself.
+fn send_to_group(pid: u32, sig: Signal) {
+    if let Err(error) = signal::kill(Pid::from_raw(-(pid as i32)), sig) {
+        warn!(pid, %sig, %error, "could not signal process group");
     }
 }

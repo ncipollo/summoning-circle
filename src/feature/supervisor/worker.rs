@@ -59,7 +59,8 @@ async fn stop_child(child: &mut tokio::process::Child, pid: u32, policy: &Policy
     tokio::select! {
         _ = child.wait() => {}
         _ = time::sleep(policy.shutdown_grace) => {
-            let _ = child.kill().await;
+            signals::kill(pid);
+            let _ = child.wait().await;
         }
     }
 }

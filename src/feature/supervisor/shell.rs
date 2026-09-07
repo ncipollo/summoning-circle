@@ -63,7 +63,10 @@ impl Summon for ShellSummon {
             .arg(&self.command)
             .stdin(std::process::Stdio::null())
             .stdout(stdout)
-            .stderr(stderr);
+            .stderr(stderr)
+            // Own process group so we can signal the whole tree (including anything the shell
+            // command forks) instead of just the `sh` pid.
+            .process_group(0);
 
         if let Some(cwd) = &self.cwd {
             command.current_dir(cwd);
