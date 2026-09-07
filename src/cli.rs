@@ -31,7 +31,11 @@ pub enum Command {
     /// Launch configured processes and keep them alive (foreground)
     Run,
     /// List processes currently tracked by summoning-circle
-    Ps,
+    Ps {
+        /// Emit the records as a JSON array instead of a table
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub async fn route(cli: Cli) -> Result<()> {
@@ -47,7 +51,7 @@ pub async fn route(cli: Cli) -> Result<()> {
     match command {
         Command::Install => install::run(&context),
         Command::Run => run_command::run(&context).await,
-        Command::Ps => ps::run(&context),
+        Command::Ps { json } => ps::run(&context, json).await,
     }
 }
 
@@ -64,7 +68,7 @@ mod tests {
         let cli = Cli::parse_from(["summoning-circle", "--config", "/tmp/x.toml", "ps"]);
 
         assert_eq!(cli.config, Some(PathBuf::from("/tmp/x.toml")));
-        assert_eq!(cli.command, Some(Command::Ps));
+        assert_eq!(cli.command, Some(Command::Ps { json: false }));
     }
 
     #[test]
@@ -102,6 +106,13 @@ mod tests {
         let cli = Cli::parse_from(["summoning-circle", "ps"]);
 
         assert_eq!(cli.info, None);
-        assert_eq!(cli.command, Some(Command::Ps));
+        assert_eq!(cli.command, Some(Command::Ps { json: false }));
+    }
+
+    #[test]
+    fn parses_ps_json_flag() {
+        let cli = Cli::parse_from(["summoning-circle", "ps", "--json"]);
+
+        assert_eq!(cli.command, Some(Command::Ps { json: true }));
     }
 }

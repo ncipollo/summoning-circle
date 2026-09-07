@@ -7,7 +7,7 @@ pub fn render() -> String {
          COMMANDS\n\
          \x20 install   Install summoning-circle as a user launch agent\n\
          \x20 run       Launch configured processes and keep them alive (foreground)\n\
-         \x20 ps        List processes currently tracked by summoning-circle\n\n\
+         \x20 ps        List processes tracked by summoning-circle (--json for machine-readable output)\n\n\
          OPTIONS\n\
          \x20 -c, --config <PATH>   Path to the process config file\n\
          \x20                       (default: ~/.summoning-circle/config.toml)\n\n\
@@ -32,5 +32,11 @@ mod tests {
         let page = render();
         assert!(page.contains("--config"));
         assert!(page.contains("~/.summoning-circle/config.toml"));
+    }
+
+    #[test]
+    fn page_documents_ps_json_flag() {
+        let page = render();
+        assert!(page.contains("--json"));
     }
 }

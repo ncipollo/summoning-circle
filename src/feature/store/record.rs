@@ -2,15 +2,21 @@ use std::str::FromStr;
 
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 use sqlx::FromRow;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+/// A process's status as tracked in the store, plus the display-only `Stale`
+/// status `ps` reports for a `Running` record whose pid is no longer alive.
+/// `Stale` is intentionally absent from `FromStr`: it is never persisted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, sqlx::Type)]
 #[sqlx(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
 pub enum ProcessStatus {
     Starting,
     Running,
     Exited,
     Stopped,
+    Stale,
 }
 
 impl ProcessStatus {
@@ -20,6 +26,7 @@ impl ProcessStatus {
             ProcessStatus::Running => "running",
             ProcessStatus::Exited => "exited",
             ProcessStatus::Stopped => "stopped",
+            ProcessStatus::Stale => "stale",
         }
     }
 }
@@ -38,7 +45,7 @@ impl FromStr for ProcessStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, FromRow)]
 pub struct ProcessRecord {
     pub name: String,
     pub kind: String,
@@ -87,6 +94,12 @@ mod tests {
             let parsed: ProcessStatus = status.as_str().parse().expect("known status should parse");
             assert_eq!(parsed, status);
         }
+    }
+
+    #[test]
+    fn stale_is_display_only_and_not_parseable() {
+        assert_eq!(ProcessStatus::Stale.as_str(), "stale");
+        assert!("stale".parse::<ProcessStatus>().is_err());
     }
 
     #[test]
