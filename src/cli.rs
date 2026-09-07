@@ -34,7 +34,7 @@ pub async fn route(cli: Cli) -> Result<()> {
 
     match cli.command {
         Command::Install => install::run(&context),
-        Command::Run => run_command::run(&context),
+        Command::Run => run_command::run(&context).await,
         Command::Ps => ps::run(&context),
     }
 }

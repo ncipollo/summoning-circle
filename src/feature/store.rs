@@ -120,6 +120,27 @@ impl Store {
         Ok(())
     }
 
+    /// Marks a process as stopped, clearing its pid.
+    pub async fn mark_stopped(&self, name: &str) -> Result<()> {
+        let result = sqlx::query(
+            "UPDATE processes
+                SET pid = NULL,
+                    status = 'stopped',
+                    updated_at = ?
+             WHERE name = ?",
+        )
+        .bind(Utc::now())
+        .bind(name)
+        .execute(&self.pool)
+        .await
+        .with_context(|| format!("could not mark '{name}' as stopped"))?;
+
+        if result.rows_affected() == 0 {
+            bail!("no tracked process named '{name}'");
+        }
+        Ok(())
+    }
+
     /// Lists all tracked processes, ordered by name.
     pub async fn list(&self) -> Result<Vec<ProcessRecord>> {
         sqlx::query_as("SELECT * FROM processes ORDER BY name")
@@ -269,6 +290,42 @@ mod tests {
 
         let error = store
             .mark_running("ghost", 1)
+            .await
+            .expect_err("unknown process should error");
+
+        assert!(error.to_string().contains("ghost"));
+    }
+
+    #[tokio::test]
+    async fn mark_stopped_clears_pid() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let store = open_store(&dir).await;
+        store
+            .upsert(&ProcessRecord::starting("api", "shell", "cargo run"))
+            .await
+            .expect("upsert should succeed");
+        store
+            .mark_running("api", 123)
+            .await
+            .expect("mark_running should succeed");
+
+        store
+            .mark_stopped("api")
+            .await
+            .expect("mark_stopped should succeed");
+        let records = store.list().await.expect("list should succeed");
+
+        assert_eq!(records[0].pid, None);
+        assert_eq!(records[0].status, ProcessStatus::Stopped);
+    }
+
+    #[tokio::test]
+    async fn mark_stopped_on_unknown_name_errors() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let store = open_store(&dir).await;
+
+        let error = store
+            .mark_stopped("ghost")
             .await
             .expect_err("unknown process should error");
 
