@@ -10,7 +10,6 @@ const LOG_DIR_NAME: &str = "logs";
 /// Paths resolved once at startup and shared by every subcommand.
 pub struct Context {
     pub config_path: PathBuf,
-    pub data_dir: PathBuf,
     pub db_path: PathBuf,
     pub log_dir: PathBuf,
 }
@@ -30,7 +29,6 @@ impl Context {
 
         Self {
             config_path,
-            data_dir,
             db_path,
             log_dir,
         }
@@ -50,10 +48,6 @@ mod tests {
 
         assert_eq!(context.config_path, PathBuf::from("/tmp/x.toml"));
         assert_eq!(
-            context.data_dir,
-            PathBuf::from("/home/user/.summoning-circle")
-        );
-        assert_eq!(
             context.db_path,
             PathBuf::from("/home/user/.summoning-circle/circle.db")
         );
@@ -70,10 +64,6 @@ mod tests {
         assert_eq!(
             context.config_path,
             PathBuf::from("/home/user/.summoning-circle/config.toml")
-        );
-        assert_eq!(
-            context.data_dir,
-            PathBuf::from("/home/user/.summoning-circle")
         );
         assert_eq!(
             context.db_path,

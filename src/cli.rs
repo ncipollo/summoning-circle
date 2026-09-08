@@ -27,7 +27,11 @@ pub struct Cli {
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum Command {
     /// Install summoning-circle as a user launch agent
-    Install,
+    Install {
+        /// Remove the launch agent instead of installing it
+        #[arg(long)]
+        uninstall: bool,
+    },
     /// Launch configured processes and keep them alive (foreground)
     Run,
     /// List processes currently tracked by summoning-circle
@@ -46,10 +50,13 @@ pub async fn route(cli: Cli) -> Result<()> {
     let command = cli
         .command
         .ok_or_else(|| anyhow!("a subcommand is required: install, run, ps"))?;
+    let config_override = cli.config.clone();
     let context = Context::new(cli.config)?;
 
     match command {
-        Command::Install => install::run(&context),
+        Command::Install { uninstall } => {
+            install::run(&context, uninstall, config_override.as_deref())
+        }
         Command::Run => run_command::run(&context).await,
         Command::Ps { json } => ps::run(&context, json).await,
     }
@@ -114,5 +121,19 @@ mod tests {
         let cli = Cli::parse_from(["summoning-circle", "ps", "--json"]);
 
         assert_eq!(cli.command, Some(Command::Ps { json: true }));
+    }
+
+    #[test]
+    fn defaults_install_uninstall_to_false() {
+        let cli = Cli::parse_from(["summoning-circle", "install"]);
+
+        assert_eq!(cli.command, Some(Command::Install { uninstall: false }));
+    }
+
+    #[test]
+    fn parses_install_uninstall_flag() {
+        let cli = Cli::parse_from(["summoning-circle", "install", "--uninstall"]);
+
+        assert_eq!(cli.command, Some(Command::Install { uninstall: true }));
     }
 }

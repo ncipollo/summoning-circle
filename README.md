@@ -1,6 +1,33 @@
 # summoning-circle
 Summon your processes and ensure they can never die
 
+## Installing as a launch agent
+
+On macOS, `summoning-circle install` registers a `com.ncipollo.summoning-circle` launchd user
+agent that runs `summoning-circle run` at login and restarts it if it ever exits, so the circle
+itself can never die:
+
+```
+summoning-circle install
+```
+
+This writes `~/Library/LaunchAgents/com.ncipollo.summoning-circle.plist`, pointing at the current
+executable's absolute path, and loads it with `launchctl`. If `--config <PATH>` was passed to
+`install`, that flag is baked into the agent so it's used on every future launch. Logs go to
+`~/.summoning-circle/logs/agent.out.log` and `agent.err.log`. Check status with:
+
+```
+launchctl print gui/$(id -u)/com.ncipollo.summoning-circle
+```
+
+To stop and remove the agent:
+
+```
+summoning-circle install --uninstall
+```
+
+`install` is macOS-only; on other platforms it exits with an error.
+
 ## Configuration
 
 `summoning-circle` reads a TOML config file listing the processes it should manage.
