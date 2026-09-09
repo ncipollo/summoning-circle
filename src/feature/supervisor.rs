@@ -3,6 +3,7 @@ pub mod policy;
 mod repository;
 pub mod shell;
 pub mod signals;
+mod startup;
 mod worker;
 
 use std::path::PathBuf;
@@ -37,7 +38,14 @@ impl Supervisor {
     }
 
     /// Runs until `shutdown` fires, then stops every child before returning.
+    ///
+    /// Before spawning anything, this refuses to start alongside another live supervisor
+    /// and reclaims any orphaned children left behind by a previous crashed run. The
+    /// supervisor claim is always released before returning, even if a worker errors, so
+    /// the next `run` doesn't mistake this process for still being alive.
     pub async fn run(self, shutdown: watch::Receiver<bool>) -> Result<()> {
+        startup::claim(&self.repository, &self.policy).await?;
+
         self.reconcile().await?;
 
         let handles: Vec<_> = self
@@ -46,11 +54,15 @@ impl Supervisor {
             .map(|entry| self.spawn_worker(entry, shutdown.clone()))
             .collect();
 
+        let mut outcome = Ok(());
         for handle in handles {
-            handle.await.expect("worker task should not panic")?;
+            if let Err(error) = handle.await.expect("worker task should not panic") {
+                outcome = Err(error);
+            }
         }
 
-        Ok(())
+        self.repository.release_supervisor().await?;
+        outcome
     }
 
     async fn reconcile(&self) -> Result<()> {
