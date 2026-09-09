@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use anyhow::{Result, anyhow};
 use clap::{Parser, Subcommand};
 
-use commands::{install, ps, run as run_command, uninstall};
+use commands::{install, killall, ps, run as run_command, uninstall};
 use context::Context;
 
 #[derive(Debug, Parser)]
@@ -38,6 +38,8 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Terminate every process currently tracked by summoning-circle
+    Killall,
 }
 
 pub async fn route(cli: Cli) -> Result<()> {
@@ -47,7 +49,7 @@ pub async fn route(cli: Cli) -> Result<()> {
 
     let command = cli
         .command
-        .ok_or_else(|| anyhow!("a subcommand is required: install, uninstall, run, ps"))?;
+        .ok_or_else(|| anyhow!("a subcommand is required: install, uninstall, run, ps, killall"))?;
     let config_override = cli.config.clone();
     let context = Context::new(cli.config)?;
 
@@ -56,6 +58,7 @@ pub async fn route(cli: Cli) -> Result<()> {
         Command::Uninstall => uninstall::run(),
         Command::Run => run_command::run(&context).await,
         Command::Ps { json } => ps::run(&context, json).await,
+        Command::Killall => killall::run(&context).await,
     }
 }
 
@@ -132,6 +135,13 @@ mod tests {
         let cli = Cli::parse_from(["summoning-circle", "uninstall"]);
 
         assert_eq!(cli.command, Some(Command::Uninstall));
+    }
+
+    #[test]
+    fn parses_killall_command() {
+        let cli = Cli::parse_from(["summoning-circle", "killall"]);
+
+        assert_eq!(cli.command, Some(Command::Killall));
     }
 
     #[test]
