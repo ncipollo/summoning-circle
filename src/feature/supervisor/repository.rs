@@ -23,6 +23,22 @@ impl ProcessRepository {
         self.store.remove_missing(keep).await
     }
 
+    /// Tracks a newly added process, so its first `record_running` has a row to update.
+    pub async fn track_new(&self, record: &ProcessRecord) -> Result<()> {
+        self.store.upsert(record).await
+    }
+
+    /// Drops a single process, used when a live config change removes its entry.
+    pub async fn untrack(&self, name: &str) -> Result<()> {
+        self.store.remove(name).await
+    }
+
+    /// Updates a tracked process's kind/command in place, used when a live config change
+    /// alters an existing process's definition, just ahead of restarting it.
+    pub async fn update_definition(&self, name: &str, kind: &str, command: &str) -> Result<()> {
+        self.store.update_definition(name, kind, command).await
+    }
+
     pub async fn record_running(
         &self,
         name: &str,
@@ -192,5 +208,46 @@ mod tests {
 
         assert_eq!(pids.len(), 1);
         assert_eq!(pids[0].pid, 123);
+    }
+
+    #[tokio::test]
+    async fn track_new_makes_a_process_available_to_record_running() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let (repository, _path) = open(&dir).await;
+
+        repository
+            .track_new(&ProcessRecord::starting("api", "shell", "cargo run"))
+            .await
+            .expect("track_new should succeed");
+        repository
+            .record_running("api", 123, Some(456))
+            .await
+            .expect("record_running should succeed after track_new");
+    }
+
+    #[tokio::test]
+    async fn untrack_drops_only_the_named_process() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let (repository, path) = open(&dir).await;
+        repository
+            .reconcile(
+                &[
+                    ProcessRecord::starting("api", "shell", "one"),
+                    ProcessRecord::starting("tunnel", "shell", "two"),
+                ],
+                &["api", "tunnel"],
+            )
+            .await
+            .expect("reconcile should succeed");
+
+        repository
+            .untrack("api")
+            .await
+            .expect("untrack should succeed");
+
+        let read_store = Store::open(&path).await.expect("reader store should open");
+        let listed = read_store.list().await.expect("list should succeed");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].name, "tunnel");
     }
 }

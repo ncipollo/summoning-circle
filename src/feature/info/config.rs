@@ -28,7 +28,11 @@ pub fn render() -> String {
          \x20 type     required  process kind; only \"shell\" is supported today\n\
          \x20 command  required  shell command used to launch the process\n\
          \x20 cwd      optional  working directory for the command\n\
-         \x20 env      optional  extra environment variables for the command\n"
+         \x20 env      optional  extra environment variables for the command\n\n\
+         LIVE RELOAD\n\
+         \x20 While `run` is active, editing this file adds, removes, or restarts the\n\
+         \x20 affected processes automatically. Invalid edits are logged and ignored\n\
+         \x20 until fixed.\n"
     )
 }
 
@@ -64,5 +68,11 @@ mod tests {
         let page = render();
         assert!(page.contains("~/.summoning-circle/config.toml"));
         assert!(page.contains("--config"));
+    }
+
+    #[test]
+    fn page_documents_live_reload() {
+        let page = render();
+        assert!(page.to_lowercase().contains("live reload"));
     }
 }
