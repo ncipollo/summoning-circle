@@ -1,44 +1,10 @@
-use std::time::Duration;
-
 use anyhow::{Result, bail};
-use tokio::time::{self, Instant};
 use tracing::{info, warn};
 
 use super::policy::Policy;
 use super::repository::ProcessRepository;
-use super::signals;
-use crate::feature::proc;
+use crate::feature::proc::control::{self, ProcessControl, SystemControl};
 use crate::feature::store::TrackedPid;
-
-/// Abstracts liveness checks and signaling so the claim sequence can be tested
-/// without touching real processes.
-pub trait ProcessControl: Send + Sync {
-    fn is_alive(&self, pid: u32) -> bool;
-    fn start_time(&self, pid: u32) -> Option<i64>;
-    fn terminate(&self, pid: u32);
-    fn kill(&self, pid: u32);
-}
-
-/// Delegates to the real OS-facing liveness checks and signals.
-pub struct SystemControl;
-
-impl ProcessControl for SystemControl {
-    fn is_alive(&self, pid: u32) -> bool {
-        proc::is_alive(pid)
-    }
-
-    fn start_time(&self, pid: u32) -> Option<i64> {
-        proc::start_time(pid)
-    }
-
-    fn terminate(&self, pid: u32) {
-        signals::terminate(pid);
-    }
-
-    fn kill(&self, pid: u32) {
-        signals::kill(pid);
-    }
-}
 
 /// Ensures no other supervisor owns the store, reclaims any orphaned children left
 /// behind by a previous crashed supervisor, then claims ownership for this process.
@@ -121,87 +87,21 @@ async fn reclaim_one(tracked: TrackedPid, policy: &Policy, control: &dyn Process
             );
         }
         Identity::Matches => {
-            stop_orphan(tracked.pid, policy, control).await;
+            control::stop(tracked.pid, policy.shutdown_grace, control).await;
             info!(pid = tracked.pid, "terminated orphaned process");
         }
     }
 }
 
-/// Asks `pid` to terminate gracefully, escalating to SIGKILL after the policy's grace
-/// period. Mirrors `worker::stop_child`, but there is no `Child` handle to `wait()` on, so
-/// liveness is polled instead.
-async fn stop_orphan(pid: u32, policy: &Policy, control: &dyn ProcessControl) {
-    control.terminate(pid);
-
-    let deadline = Instant::now() + policy.shutdown_grace;
-    while control.is_alive(pid) && Instant::now() < deadline {
-        time::sleep(Duration::from_millis(10)).await;
-    }
-
-    if control.is_alive(pid) {
-        control.kill(pid);
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use std::sync::Mutex;
+    use std::time::Duration;
 
     use tempfile::TempDir;
 
     use super::*;
+    use crate::feature::proc::control::tests::FakeControl;
     use crate::feature::store::{ProcessRecord, Store};
-
-    #[derive(Default)]
-    struct FakeControl {
-        alive: Mutex<HashMap<u32, bool>>,
-        start_times: HashMap<u32, i64>,
-        dies_on_terminate: bool,
-        terminated: Mutex<Vec<u32>>,
-        killed: Mutex<Vec<u32>>,
-    }
-
-    impl FakeControl {
-        fn alive_with_start_time(pid: u32, start_time: i64) -> Self {
-            let mut control = Self::default();
-            control.alive.lock().unwrap().insert(pid, true);
-            control.start_times.insert(pid, start_time);
-            control
-        }
-
-        fn dead(pid: u32) -> Self {
-            let control = Self::default();
-            control.alive.lock().unwrap().insert(pid, false);
-            control
-        }
-    }
-
-    impl ProcessControl for FakeControl {
-        fn is_alive(&self, pid: u32) -> bool {
-            *self.alive.lock().unwrap().get(&pid).unwrap_or(&false)
-        }
-
-        fn start_time(&self, pid: u32) -> Option<i64> {
-            if self.is_alive(pid) {
-                self.start_times.get(&pid).copied()
-            } else {
-                None
-            }
-        }
-
-        fn terminate(&self, pid: u32) {
-            self.terminated.lock().unwrap().push(pid);
-            if self.dies_on_terminate {
-                self.alive.lock().unwrap().insert(pid, false);
-            }
-        }
-
-        fn kill(&self, pid: u32) {
-            self.killed.lock().unwrap().push(pid);
-            self.alive.lock().unwrap().insert(pid, false);
-        }
-    }
 
     fn test_policy() -> Policy {
         Policy {

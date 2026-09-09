@@ -9,7 +9,6 @@ use super::backoff::Backoff;
 use super::policy::Policy;
 use super::repository::ProcessRepository;
 use super::shell::Summon;
-use super::signals;
 use crate::feature::proc;
 
 /// Spawns, watches, and relaunches a single process until `shutdown` fires.
@@ -57,12 +56,12 @@ pub async fn run(
 
 /// Asks the child to terminate gracefully, escalating to SIGKILL after the policy's grace period.
 async fn stop_child(child: &mut tokio::process::Child, pid: u32, policy: &Policy) {
-    signals::terminate(pid);
+    proc::terminate(pid);
 
     tokio::select! {
         _ = child.wait() => {}
         _ = time::sleep(policy.shutdown_grace) => {
-            signals::kill(pid);
+            proc::kill(pid);
             let _ = child.wait().await;
         }
     }

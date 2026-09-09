@@ -1,7 +1,10 @@
+pub mod control;
+
 use nix::errno::Errno;
-use nix::sys::signal;
+use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use sysinfo::{Pid as SysPid, ProcessRefreshKind, ProcessesToUpdate, System};
+use tracing::warn;
 
 /// Checks whether `pid` is still alive by sending it no signal. Only
 /// `ESRCH` ("no such process") is treated as dead; any other error (e.g.
@@ -12,6 +15,24 @@ pub fn is_alive(pid: u32) -> bool {
         signal::kill(Pid::from_raw(pid as i32), None),
         Err(Errno::ESRCH)
     )
+}
+
+/// Asks `pid`'s whole process group to shut down gracefully.
+pub fn terminate(pid: u32) {
+    send_to_group(pid, Signal::SIGTERM);
+}
+
+/// Forces `pid`'s whole process group to exit immediately.
+pub fn kill(pid: u32) {
+    send_to_group(pid, Signal::SIGKILL);
+}
+
+/// Sends `sig` to the process group led by `pid`, which each child is spawned into so that any
+/// processes it forks are signaled too, not just the tracked pid itself.
+fn send_to_group(pid: u32, sig: Signal) {
+    if let Err(error) = signal::kill(Pid::from_raw(-(pid as i32)), sig) {
+        warn!(pid, %sig, %error, "could not signal process group");
+    }
 }
 
 /// Looks up the OS-reported start time (seconds since epoch) of `pid`, or

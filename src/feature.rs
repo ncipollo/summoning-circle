@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod info;
+pub mod kill;
 pub mod launchd;
 pub mod proc;
 pub mod ps;
