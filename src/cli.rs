@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use anyhow::{Result, anyhow};
 use clap::{Parser, Subcommand};
 
-use commands::{install, killall, ps, run as run_command, uninstall};
+use commands::{install, killall, ps, restart, run as run_command, uninstall};
 use context::Context;
 
 #[derive(Debug, Parser)]
@@ -40,6 +40,11 @@ pub enum Command {
     },
     /// Terminate every process currently tracked by summoning-circle
     Killall,
+    /// Restart a single tracked process by name
+    Restart {
+        /// Name of the process, as it appears in the config file
+        name: String,
+    },
 }
 
 pub async fn route(cli: Cli) -> Result<()> {
@@ -47,9 +52,9 @@ pub async fn route(cli: Cli) -> Result<()> {
         return info::run(topic.as_deref());
     }
 
-    let command = cli
-        .command
-        .ok_or_else(|| anyhow!("a subcommand is required: install, uninstall, run, ps, killall"))?;
+    let command = cli.command.ok_or_else(|| {
+        anyhow!("a subcommand is required: install, uninstall, run, ps, killall, restart")
+    })?;
     let config_override = cli.config.clone();
     let context = Context::new(cli.config)?;
 
@@ -59,6 +64,7 @@ pub async fn route(cli: Cli) -> Result<()> {
         Command::Run => run_command::run(&context).await,
         Command::Ps { json } => ps::run(&context, json).await,
         Command::Killall => killall::run(&context).await,
+        Command::Restart { name } => restart::run(&context, &name).await,
     }
 }
 
@@ -142,6 +148,18 @@ mod tests {
         let cli = Cli::parse_from(["summoning-circle", "killall"]);
 
         assert_eq!(cli.command, Some(Command::Killall));
+    }
+
+    #[test]
+    fn parses_restart_command_with_name() {
+        let cli = Cli::parse_from(["summoning-circle", "restart", "api"]);
+
+        assert_eq!(
+            cli.command,
+            Some(Command::Restart {
+                name: "api".to_string()
+            })
+        );
     }
 
     #[test]
