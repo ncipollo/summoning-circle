@@ -45,6 +45,21 @@ impl FromStr for ProcessStatus {
     }
 }
 
+/// The current supervisor's identity, as persisted in the `supervisor` table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromRow)]
+pub struct SupervisorRecord {
+    pub pid: u32,
+    pub start_time: Option<i64>,
+}
+
+/// A tracked process's pid and start time, used to identify orphans left
+/// behind by a previous supervisor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromRow)]
+pub struct TrackedPid {
+    pub pid: u32,
+    pub start_time: Option<i64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, FromRow)]
 pub struct ProcessRecord {
     pub name: String,

@@ -1,4 +1,5 @@
 pub mod record;
+mod supervisor;
 
 use std::fs;
 use std::path::Path;
@@ -8,7 +9,7 @@ use anyhow::{Context as _, Result, bail};
 use chrono::Utc;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool};
 
-pub use record::{ProcessRecord, ProcessStatus};
+pub use record::{ProcessRecord, ProcessStatus, SupervisorRecord, TrackedPid};
 
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -73,18 +74,21 @@ impl Store {
         Ok(())
     }
 
-    /// Marks a process as running with the given pid, bumping `restart_count` if it had exited.
-    pub async fn mark_running(&self, name: &str, pid: u32) -> Result<()> {
+    /// Marks a process as running with the given pid and start time, bumping
+    /// `restart_count` if it had exited.
+    pub async fn mark_running(&self, name: &str, pid: u32, start_time: Option<i64>) -> Result<()> {
         let result = sqlx::query(
             "UPDATE processes
                 SET pid = ?1,
+                    start_time = ?2,
                     status = 'running',
-                    started_at = ?2,
-                    updated_at = ?2,
+                    started_at = ?3,
+                    updated_at = ?3,
                     restart_count = restart_count + CASE WHEN status = 'exited' THEN 1 ELSE 0 END
-             WHERE name = ?3",
+             WHERE name = ?4",
         )
         .bind(pid)
+        .bind(start_time)
         .bind(Utc::now())
         .bind(name)
         .execute(&self.pool)
@@ -102,6 +106,7 @@ impl Store {
         let result = sqlx::query(
             "UPDATE processes
                 SET pid = NULL,
+                    start_time = NULL,
                     status = 'exited',
                     last_exit_code = ?,
                     updated_at = ?
@@ -125,6 +130,7 @@ impl Store {
         let result = sqlx::query(
             "UPDATE processes
                 SET pid = NULL,
+                    start_time = NULL,
                     status = 'stopped',
                     updated_at = ?
              WHERE name = ?",
@@ -147,6 +153,15 @@ impl Store {
             .fetch_all(&self.pool)
             .await
             .context("could not list processes")
+    }
+
+    /// Lists the pid and start time of every process that currently has a stored pid,
+    /// used to find orphans left behind by a previous supervisor.
+    pub async fn tracked_pids(&self) -> Result<Vec<TrackedPid>> {
+        sqlx::query_as("SELECT pid, start_time FROM processes WHERE pid IS NOT NULL")
+            .fetch_all(&self.pool)
+            .await
+            .context("could not list tracked pids")
     }
 
     /// Removes tracked processes whose name is not in `keep`.
@@ -241,7 +256,7 @@ mod tests {
             .expect("upsert should succeed");
 
         store
-            .mark_running("api", 123)
+            .mark_running("api", 123, Some(456))
             .await
             .expect("mark_running should succeed");
         let records = store.list().await.expect("list should succeed");
@@ -260,7 +275,7 @@ mod tests {
             .await
             .expect("upsert should succeed");
         store
-            .mark_running("api", 123)
+            .mark_running("api", 123, Some(456))
             .await
             .expect("mark_running should succeed");
 
@@ -275,7 +290,7 @@ mod tests {
         assert_eq!(after_exit[0].restart_count, 0);
 
         store
-            .mark_running("api", 456)
+            .mark_running("api", 456, Some(789))
             .await
             .expect("relaunch mark_running should succeed");
         let after_relaunch = store.list().await.expect("list should succeed");
@@ -289,7 +304,7 @@ mod tests {
         let store = open_store(&dir).await;
 
         let error = store
-            .mark_running("ghost", 1)
+            .mark_running("ghost", 1, None)
             .await
             .expect_err("unknown process should error");
 
@@ -305,7 +320,7 @@ mod tests {
             .await
             .expect("upsert should succeed");
         store
-            .mark_running("api", 123)
+            .mark_running("api", 123, Some(456))
             .await
             .expect("mark_running should succeed");
 
@@ -343,6 +358,100 @@ mod tests {
             .expect_err("unknown process should error");
 
         assert!(error.to_string().contains("ghost"));
+    }
+
+    async fn start_time_of(store: &Store, name: &str) -> Option<i64> {
+        sqlx::query_scalar("SELECT start_time FROM processes WHERE name = ?")
+            .bind(name)
+            .fetch_one(&store.pool)
+            .await
+            .expect("query should succeed")
+    }
+
+    #[tokio::test]
+    async fn mark_running_persists_start_time() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let store = open_store(&dir).await;
+        store
+            .upsert(&ProcessRecord::starting("api", "shell", "cargo run"))
+            .await
+            .expect("upsert should succeed");
+
+        store
+            .mark_running("api", 123, Some(456))
+            .await
+            .expect("mark_running should succeed");
+
+        assert_eq!(start_time_of(&store, "api").await, Some(456));
+    }
+
+    #[tokio::test]
+    async fn mark_exited_clears_start_time() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let store = open_store(&dir).await;
+        store
+            .upsert(&ProcessRecord::starting("api", "shell", "cargo run"))
+            .await
+            .expect("upsert should succeed");
+        store
+            .mark_running("api", 123, Some(456))
+            .await
+            .expect("mark_running should succeed");
+
+        store
+            .mark_exited("api", Some(1))
+            .await
+            .expect("mark_exited should succeed");
+
+        assert_eq!(start_time_of(&store, "api").await, None);
+    }
+
+    #[tokio::test]
+    async fn mark_stopped_clears_start_time() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let store = open_store(&dir).await;
+        store
+            .upsert(&ProcessRecord::starting("api", "shell", "cargo run"))
+            .await
+            .expect("upsert should succeed");
+        store
+            .mark_running("api", 123, Some(456))
+            .await
+            .expect("mark_running should succeed");
+
+        store
+            .mark_stopped("api")
+            .await
+            .expect("mark_stopped should succeed");
+
+        assert_eq!(start_time_of(&store, "api").await, None);
+    }
+
+    #[tokio::test]
+    async fn tracked_pids_skips_records_without_a_pid() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let store = open_store(&dir).await;
+        store
+            .upsert(&ProcessRecord::starting("api", "shell", "cargo run"))
+            .await
+            .expect("upsert should succeed");
+        store
+            .upsert(&ProcessRecord::starting("tunnel", "shell", "ssh -N"))
+            .await
+            .expect("upsert should succeed");
+        store
+            .mark_running("api", 123, Some(456))
+            .await
+            .expect("mark_running should succeed");
+
+        let pids = store
+            .tracked_pids()
+            .await
+            .expect("tracked_pids should succeed");
+
+        assert_eq!(pids.len(), 1);
+        assert_eq!(pids[0].pid, 123);
+        assert_eq!(pids[0].start_time, Some(456));
     }
 
     #[tokio::test]

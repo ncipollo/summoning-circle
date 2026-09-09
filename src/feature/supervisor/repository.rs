@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::feature::store::{ProcessRecord, Store};
+use crate::feature::store::{ProcessRecord, Store, SupervisorRecord, TrackedPid};
 
 /// Intention-revealing façade over the `Store`, used by the supervisor and its workers.
 /// `Store` already clones cheaply and is safe to use concurrently, so this holds an owned
@@ -23,8 +23,13 @@ impl ProcessRepository {
         self.store.remove_missing(keep).await
     }
 
-    pub async fn record_running(&self, name: &str, pid: u32) -> Result<()> {
-        self.store.mark_running(name, pid).await
+    pub async fn record_running(
+        &self,
+        name: &str,
+        pid: u32,
+        start_time: Option<i64>,
+    ) -> Result<()> {
+        self.store.mark_running(name, pid, start_time).await
     }
 
     pub async fn record_exited(&self, name: &str, exit_code: Option<i32>) -> Result<()> {
@@ -33,6 +38,26 @@ impl ProcessRepository {
 
     pub async fn record_stopped(&self, name: &str) -> Result<()> {
         self.store.mark_stopped(name).await
+    }
+
+    /// Records `pid` as the currently running supervisor, replacing any previous claim.
+    pub async fn claim_supervisor(&self, pid: u32, start_time: Option<i64>) -> Result<()> {
+        self.store.claim_supervisor(pid, start_time).await
+    }
+
+    /// Returns the current supervisor claim, if one has been recorded.
+    pub async fn supervisor(&self) -> Result<Option<SupervisorRecord>> {
+        self.store.supervisor().await
+    }
+
+    /// Clears the supervisor claim, so the next `run` sees no live owner.
+    pub async fn release_supervisor(&self) -> Result<()> {
+        self.store.release_supervisor().await
+    }
+
+    /// Lists the pid and start time of every process that currently has a stored pid.
+    pub async fn tracked_pids(&self) -> Result<Vec<TrackedPid>> {
+        self.store.tracked_pids().await
     }
 }
 
@@ -83,7 +108,7 @@ mod tests {
         let read_store = Store::open(&path).await.expect("reader store should open");
 
         repository
-            .record_running("api", 123)
+            .record_running("api", 123, Some(456))
             .await
             .expect("record_running should succeed");
         assert_eq!(
@@ -101,7 +126,7 @@ mod tests {
         );
 
         repository
-            .record_running("api", 456)
+            .record_running("api", 456, Some(789))
             .await
             .expect("record_running should succeed");
         repository
@@ -111,5 +136,61 @@ mod tests {
         let record = &read_store.list().await.expect("list should succeed")[0];
         assert_eq!(record.status, ProcessStatus::Stopped);
         assert_eq!(record.pid, None);
+    }
+
+    #[tokio::test]
+    async fn supervisor_claim_round_trips_then_releases() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let (repository, _path) = open(&dir).await;
+
+        assert_eq!(
+            repository.supervisor().await.expect("read should succeed"),
+            None
+        );
+
+        repository
+            .claim_supervisor(123, Some(456))
+            .await
+            .expect("claim should succeed");
+        let claim = repository
+            .supervisor()
+            .await
+            .expect("read should succeed")
+            .expect("claim should be present");
+        assert_eq!(claim.pid, 123);
+
+        repository
+            .release_supervisor()
+            .await
+            .expect("release should succeed");
+        assert_eq!(
+            repository.supervisor().await.expect("read should succeed"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn tracked_pids_reflects_running_processes() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let (repository, _path) = open(&dir).await;
+        repository
+            .reconcile(
+                &[ProcessRecord::starting("api", "shell", "cargo run")],
+                &["api"],
+            )
+            .await
+            .expect("reconcile should succeed");
+        repository
+            .record_running("api", 123, Some(456))
+            .await
+            .expect("record_running should succeed");
+
+        let pids = repository
+            .tracked_pids()
+            .await
+            .expect("tracked_pids should succeed");
+
+        assert_eq!(pids.len(), 1);
+        assert_eq!(pids[0].pid, 123);
     }
 }

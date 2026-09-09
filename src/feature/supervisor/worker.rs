@@ -10,6 +10,7 @@ use super::policy::Policy;
 use super::repository::ProcessRepository;
 use super::shell::Summon;
 use super::signals;
+use crate::feature::proc;
 
 /// Spawns, watches, and relaunches a single process until `shutdown` fires.
 pub async fn run(
@@ -24,7 +25,9 @@ pub async fn run(
     while !*shutdown.borrow() {
         let mut child = summon.spawn()?;
         let pid = child.id().context("spawned child is missing a pid")?;
-        repository.record_running(name, pid).await?;
+        repository
+            .record_running(name, pid, proc::start_time(pid))
+            .await?;
         info!(name, pid, "launched process");
 
         let started_at = Instant::now();

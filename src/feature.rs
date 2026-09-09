@@ -3,6 +3,7 @@
 pub mod config;
 pub mod info;
 pub mod launchd;
+pub mod proc;
 pub mod ps;
 pub mod store;
 pub mod supervisor;

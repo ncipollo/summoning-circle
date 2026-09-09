@@ -1,10 +1,8 @@
 pub mod table;
 
 use anyhow::Result;
-use nix::errno::Errno;
-use nix::sys::signal;
-use nix::unistd::Pid;
 
+use crate::feature::proc;
 use crate::feature::store::{ProcessRecord, ProcessStatus};
 
 /// Printed when there is nothing to show: either the store has no records,
@@ -17,7 +15,7 @@ pub const NO_PROCESSES: &str =
 pub fn resolve(records: Vec<ProcessRecord>) -> Vec<ProcessRecord> {
     records
         .into_iter()
-        .map(|record| resolve_status(record, is_alive))
+        .map(|record| resolve_status(record, proc::is_alive))
         .collect()
 }
 
@@ -26,17 +24,6 @@ fn resolve_status(mut record: ProcessRecord, alive: impl Fn(u32) -> bool) -> Pro
         record.status = ProcessStatus::Stale;
     }
     record
-}
-
-/// Checks whether `pid` is still alive by sending it no signal. Only
-/// `ESRCH` ("no such process") is treated as dead; any other error (e.g.
-/// `EPERM`, meaning the process exists but isn't ours to signal) means it's
-/// still alive.
-fn is_alive(pid: u32) -> bool {
-    !matches!(
-        signal::kill(Pid::from_raw(pid as i32), None),
-        Err(Errno::ESRCH)
-    )
 }
 
 /// Serializes the resolved records as a JSON array for scripting.
