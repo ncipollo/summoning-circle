@@ -8,7 +8,8 @@ use std::path::Path;
 use anyhow::Result;
 
 #[cfg(not(target_os = "macos"))]
-const UNSUPPORTED_PLATFORM_ERROR: &str = "install is only supported on macOS (launchd)";
+const UNSUPPORTED_PLATFORM_ERROR: &str =
+    "install and uninstall are only supported on macOS (launchd)";
 
 #[cfg(target_os = "macos")]
 pub fn install(log_dir: &Path, config_override: Option<&Path>) -> Result<()> {

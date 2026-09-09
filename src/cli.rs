@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use anyhow::{Result, anyhow};
 use clap::{Parser, Subcommand};
 
-use commands::{install, ps, run as run_command};
+use commands::{install, ps, run as run_command, uninstall};
 use context::Context;
 
 #[derive(Debug, Parser)]
@@ -27,11 +27,9 @@ pub struct Cli {
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum Command {
     /// Install summoning-circle as a user launch agent
-    Install {
-        /// Remove the launch agent instead of installing it
-        #[arg(long)]
-        uninstall: bool,
-    },
+    Install,
+    /// Remove the summoning-circle user launch agent
+    Uninstall,
     /// Launch configured processes and keep them alive (foreground)
     Run,
     /// List processes currently tracked by summoning-circle
@@ -49,14 +47,13 @@ pub async fn route(cli: Cli) -> Result<()> {
 
     let command = cli
         .command
-        .ok_or_else(|| anyhow!("a subcommand is required: install, run, ps"))?;
+        .ok_or_else(|| anyhow!("a subcommand is required: install, uninstall, run, ps"))?;
     let config_override = cli.config.clone();
     let context = Context::new(cli.config)?;
 
     match command {
-        Command::Install { uninstall } => {
-            install::run(&context, uninstall, config_override.as_deref())
-        }
+        Command::Install => install::run(&context, config_override.as_deref()),
+        Command::Uninstall => uninstall::run(),
         Command::Run => run_command::run(&context).await,
         Command::Ps { json } => ps::run(&context, json).await,
     }
@@ -124,16 +121,23 @@ mod tests {
     }
 
     #[test]
-    fn defaults_install_uninstall_to_false() {
+    fn parses_install_command() {
         let cli = Cli::parse_from(["summoning-circle", "install"]);
 
-        assert_eq!(cli.command, Some(Command::Install { uninstall: false }));
+        assert_eq!(cli.command, Some(Command::Install));
     }
 
     #[test]
-    fn parses_install_uninstall_flag() {
-        let cli = Cli::parse_from(["summoning-circle", "install", "--uninstall"]);
+    fn parses_uninstall_command() {
+        let cli = Cli::parse_from(["summoning-circle", "uninstall"]);
 
-        assert_eq!(cli.command, Some(Command::Install { uninstall: true }));
+        assert_eq!(cli.command, Some(Command::Uninstall));
+    }
+
+    #[test]
+    fn rejects_install_uninstall_flag() {
+        let result = Cli::try_parse_from(["summoning-circle", "install", "--uninstall"]);
+
+        assert!(result.is_err());
     }
 }

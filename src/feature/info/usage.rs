@@ -6,6 +6,7 @@ pub fn render() -> String {
          summoning-circle [OPTIONS] <COMMAND>\n\n\
          COMMANDS\n\
          \x20 install   Install summoning-circle as a user launch agent\n\
+         \x20 uninstall Remove the summoning-circle user launch agent\n\
          \x20 run       Launch configured processes and keep them alive (foreground)\n\
          \x20 ps        List processes tracked by summoning-circle (--json for machine-readable output)\n\n\
          OPTIONS\n\
@@ -22,7 +23,7 @@ mod tests {
     #[test]
     fn page_documents_all_subcommands() {
         let page = render();
-        for command in ["install", "run", "ps"] {
+        for command in ["install", "uninstall", "run", "ps"] {
             assert!(page.contains(command), "missing subcommand: {command}");
         }
     }

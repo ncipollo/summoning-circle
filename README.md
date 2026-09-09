@@ -23,10 +23,10 @@ launchctl print gui/$(id -u)/com.ncipollo.summoning-circle
 To stop and remove the agent:
 
 ```
-summoning-circle install --uninstall
+summoning-circle uninstall
 ```
 
-`install` is macOS-only; on other platforms it exits with an error.
+`install` and `uninstall` are macOS-only; on other platforms they exit with an error.
 
 ## Configuration
 
