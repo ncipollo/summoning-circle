@@ -34,6 +34,17 @@ impl ProcessControl for SystemControl {
     }
 }
 
+/// Whether `pid` currently identifies the same OS process recorded at `expected_start_time`.
+/// A pid alone is never enough proof of identity, since the OS recycles them:
+/// `expected_start_time` must be `Some` and match the pid's current start time.
+pub fn identifies_same_process(
+    pid: u32,
+    expected_start_time: Option<i64>,
+    control: &dyn ProcessControl,
+) -> bool {
+    expected_start_time.is_some() && control.start_time(pid) == expected_start_time
+}
+
 /// Asks `pid` to terminate gracefully, escalating to SIGKILL after `grace` elapses.
 /// Returns `true` if it took a SIGKILL to stop it.
 pub async fn stop(pid: u32, grace: Duration, control: &dyn ProcessControl) -> bool {
@@ -172,5 +183,26 @@ pub mod tests {
         let control = FakeControl::alive_with_start_time(1, 0);
 
         assert!(stop(1, Duration::from_millis(20), &control).await);
+    }
+
+    #[test]
+    fn identifies_same_process_when_start_times_match() {
+        let control = FakeControl::alive_with_start_time(1, 111);
+
+        assert!(identifies_same_process(1, Some(111), &control));
+    }
+
+    #[test]
+    fn identifies_same_process_rejects_a_recycled_pid() {
+        let control = FakeControl::alive_with_start_time(1, 222);
+
+        assert!(!identifies_same_process(1, Some(111), &control));
+    }
+
+    #[test]
+    fn identifies_same_process_rejects_an_unrecorded_start_time() {
+        let control = FakeControl::alive_with_start_time(1, 111);
+
+        assert!(!identifies_same_process(1, None, &control));
     }
 }

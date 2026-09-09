@@ -9,7 +9,8 @@ pub fn render() -> String {
          \x20 uninstall Remove the summoning-circle user launch agent\n\
          \x20 run       Launch configured processes and keep them alive (foreground)\n\
          \x20 ps        List processes tracked by summoning-circle (--json for machine-readable output)\n\
-         \x20 killall   Terminate every process tracked by summoning-circle\n\n\
+         \x20 killall   Terminate every process tracked by summoning-circle\n\
+         \x20 restart <NAME>  Restart a single tracked process by name\n\n\
          OPTIONS\n\
          \x20 -c, --config <PATH>   Path to the process config file\n\
          \x20                       (default: ~/.summoning-circle/config.toml)\n\n\
@@ -24,7 +25,7 @@ mod tests {
     #[test]
     fn page_documents_all_subcommands() {
         let page = render();
-        for command in ["install", "uninstall", "run", "ps", "killall"] {
+        for command in ["install", "uninstall", "run", "ps", "killall", "restart"] {
             assert!(page.contains(command), "missing subcommand: {command}");
         }
     }

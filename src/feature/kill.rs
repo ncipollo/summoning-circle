@@ -4,6 +4,7 @@ use crate::feature::proc::control::{self, ProcessControl};
 use crate::feature::store::{ProcessRecord, ProcessStatus};
 
 /// What happened to one tracked process after a kill request.
+#[derive(Debug)]
 pub enum Outcome {
     /// Died on SIGTERM within the grace period.
     Signaled { name: String, pid: u32 },

@@ -6,5 +6,6 @@ pub mod kill;
 pub mod launchd;
 pub mod proc;
 pub mod ps;
+pub mod restart;
 pub mod store;
 pub mod supervisor;
