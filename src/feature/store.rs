@@ -75,7 +75,7 @@ impl Store {
     }
 
     /// Marks a process as running with the given pid and start time, bumping
-    /// `restart_count` if it had exited.
+    /// `restart_count` if it had exited or been stopped (e.g. by a config-triggered restart).
     pub async fn mark_running(&self, name: &str, pid: u32, start_time: Option<i64>) -> Result<()> {
         let result = sqlx::query(
             "UPDATE processes
@@ -84,7 +84,8 @@ impl Store {
                     status = 'running',
                     started_at = ?3,
                     updated_at = ?3,
-                    restart_count = restart_count + CASE WHEN status = 'exited' THEN 1 ELSE 0 END
+                    restart_count = restart_count +
+                        CASE WHEN status IN ('exited', 'stopped') THEN 1 ELSE 0 END
              WHERE name = ?4",
         )
         .bind(pid)
@@ -94,6 +95,27 @@ impl Store {
         .execute(&self.pool)
         .await
         .with_context(|| format!("could not mark '{name}' as running"))?;
+
+        if result.rows_affected() == 0 {
+            bail!("no tracked process named '{name}'");
+        }
+        Ok(())
+    }
+
+    /// Updates a tracked process's kind/command in place, leaving its status, pid, and
+    /// restart_count untouched. Used when a live config change alters an existing process's
+    /// definition, just ahead of restarting it.
+    pub async fn update_definition(&self, name: &str, kind: &str, command: &str) -> Result<()> {
+        let result = sqlx::query(
+            "UPDATE processes SET kind = ?, command = ?, updated_at = ? WHERE name = ?",
+        )
+        .bind(kind)
+        .bind(command)
+        .bind(Utc::now())
+        .bind(name)
+        .execute(&self.pool)
+        .await
+        .with_context(|| format!("could not update definition for '{name}'"))?;
 
         if result.rows_affected() == 0 {
             bail!("no tracked process named '{name}'");
@@ -176,6 +198,17 @@ impl Store {
             .execute(&self.pool)
             .await
             .context("could not remove stale processes")?;
+
+        Ok(())
+    }
+
+    /// Removes a single tracked process by name, used when a live config change drops an entry.
+    pub async fn remove(&self, name: &str) -> Result<()> {
+        sqlx::query("DELETE FROM processes WHERE name = ?")
+            .bind(name)
+            .execute(&self.pool)
+            .await
+            .with_context(|| format!("could not remove process '{name}'"))?;
 
         Ok(())
     }
@@ -296,6 +329,69 @@ mod tests {
         let after_relaunch = store.list().await.expect("list should succeed");
         assert_eq!(after_relaunch[0].pid, Some(456));
         assert_eq!(after_relaunch[0].restart_count, 1);
+    }
+
+    #[tokio::test]
+    async fn mark_running_after_stopped_bumps_restart_count() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let store = open_store(&dir).await;
+        store
+            .upsert(&ProcessRecord::starting("api", "shell", "cargo run"))
+            .await
+            .expect("upsert should succeed");
+        store
+            .mark_running("api", 123, Some(456))
+            .await
+            .expect("mark_running should succeed");
+        store
+            .mark_stopped("api")
+            .await
+            .expect("mark_stopped should succeed");
+
+        store
+            .mark_running("api", 789, Some(111))
+            .await
+            .expect("relaunch mark_running should succeed");
+        let records = store.list().await.expect("list should succeed");
+
+        assert_eq!(records[0].restart_count, 1);
+    }
+
+    #[tokio::test]
+    async fn update_definition_changes_command_without_touching_status_or_pid() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let store = open_store(&dir).await;
+        store
+            .upsert(&ProcessRecord::starting("api", "shell", "cargo run"))
+            .await
+            .expect("upsert should succeed");
+        store
+            .mark_running("api", 123, Some(456))
+            .await
+            .expect("mark_running should succeed");
+
+        store
+            .update_definition("api", "shell", "cargo run --release")
+            .await
+            .expect("update_definition should succeed");
+        let records = store.list().await.expect("list should succeed");
+
+        assert_eq!(records[0].command, "cargo run --release");
+        assert_eq!(records[0].status, ProcessStatus::Running);
+        assert_eq!(records[0].pid, Some(123));
+    }
+
+    #[tokio::test]
+    async fn update_definition_on_unknown_name_errors() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let store = open_store(&dir).await;
+
+        let error = store
+            .update_definition("ghost", "shell", "echo hi")
+            .await
+            .expect_err("unknown process should error");
+
+        assert!(error.to_string().contains("ghost"));
     }
 
     #[tokio::test]
@@ -492,6 +588,26 @@ mod tests {
             .expect("remove_missing should succeed");
 
         assert!(store.list().await.expect("list should succeed").is_empty());
+    }
+
+    #[tokio::test]
+    async fn remove_drops_only_the_named_process() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let store = open_store(&dir).await;
+        store
+            .upsert(&ProcessRecord::starting("api", "shell", "one"))
+            .await
+            .expect("upsert should succeed");
+        store
+            .upsert(&ProcessRecord::starting("tunnel", "shell", "two"))
+            .await
+            .expect("upsert should succeed");
+
+        store.remove("api").await.expect("remove should succeed");
+        let records = store.list().await.expect("list should succeed");
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].name, "tunnel");
     }
 
     #[tokio::test]

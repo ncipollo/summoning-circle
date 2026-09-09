@@ -16,6 +16,12 @@ pub async fn run(context: &Context) -> Result<()> {
 
     tokio::spawn(signals::listen(shutdown_tx));
 
-    let supervisor = Supervisor::new(&config, store, context.log_dir.clone(), Policy::default());
+    let supervisor = Supervisor::new(
+        &config,
+        store,
+        context.log_dir.clone(),
+        context.config_path.clone(),
+        Policy::default(),
+    );
     supervisor.run(shutdown_rx).await
 }

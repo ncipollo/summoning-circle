@@ -7,6 +7,8 @@ pub struct Policy {
     pub max_backoff: Duration,
     pub uptime_reset: Duration,
     pub shutdown_grace: Duration,
+    /// How long to wait for a burst of config file events to go quiet before reloading.
+    pub config_debounce: Duration,
 }
 
 impl Default for Policy {
@@ -16,6 +18,7 @@ impl Default for Policy {
             max_backoff: Duration::from_secs(30),
             uptime_reset: Duration::from_secs(60),
             shutdown_grace: Duration::from_secs(5),
+            config_debounce: Duration::from_millis(300),
         }
     }
 }
