@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use anyhow::{Result, anyhow};
 use clap::{Parser, Subcommand};
 
-use commands::{install, ps, run as run_command};
+use commands::{install, ps, run as run_command, uninstall};
 use context::Context;
 
 #[derive(Debug, Parser)]
@@ -28,6 +28,8 @@ pub struct Cli {
 pub enum Command {
     /// Install summoning-circle as a user launch agent
     Install,
+    /// Remove the summoning-circle user launch agent
+    Uninstall,
     /// Launch configured processes and keep them alive (foreground)
     Run,
     /// List processes currently tracked by summoning-circle
@@ -45,11 +47,13 @@ pub async fn route(cli: Cli) -> Result<()> {
 
     let command = cli
         .command
-        .ok_or_else(|| anyhow!("a subcommand is required: install, run, ps"))?;
+        .ok_or_else(|| anyhow!("a subcommand is required: install, uninstall, run, ps"))?;
+    let config_override = cli.config.clone();
     let context = Context::new(cli.config)?;
 
     match command {
-        Command::Install => install::run(&context),
+        Command::Install => install::run(&context, config_override.as_deref()),
+        Command::Uninstall => uninstall::run(),
         Command::Run => run_command::run(&context).await,
         Command::Ps { json } => ps::run(&context, json).await,
     }
@@ -114,5 +118,26 @@ mod tests {
         let cli = Cli::parse_from(["summoning-circle", "ps", "--json"]);
 
         assert_eq!(cli.command, Some(Command::Ps { json: true }));
+    }
+
+    #[test]
+    fn parses_install_command() {
+        let cli = Cli::parse_from(["summoning-circle", "install"]);
+
+        assert_eq!(cli.command, Some(Command::Install));
+    }
+
+    #[test]
+    fn parses_uninstall_command() {
+        let cli = Cli::parse_from(["summoning-circle", "uninstall"]);
+
+        assert_eq!(cli.command, Some(Command::Uninstall));
+    }
+
+    #[test]
+    fn rejects_install_uninstall_flag() {
+        let result = Cli::try_parse_from(["summoning-circle", "install", "--uninstall"]);
+
+        assert!(result.is_err());
     }
 }

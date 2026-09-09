@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod info;
+pub mod launchd;
 pub mod ps;
 pub mod store;
 pub mod supervisor;
