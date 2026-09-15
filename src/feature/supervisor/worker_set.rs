@@ -109,11 +109,16 @@ mod tests {
     fn test_policy() -> Policy {
         Policy {
             shutdown_grace: Duration::from_millis(200),
+            pause_poll: Duration::from_millis(20),
             ..Policy::default()
         }
     }
 
     async fn open_set(dir: &TempDir) -> (WorkerSet, Store) {
+        open_set_with_policy(dir, test_policy()).await
+    }
+
+    async fn open_set_with_policy(dir: &TempDir, policy: Policy) -> (WorkerSet, Store) {
         let store = Store::open(&dir.path().join("circle.db"))
             .await
             .expect("store should open");
@@ -125,7 +130,7 @@ mod tests {
                 .expect("track_new should succeed");
         }
         (
-            WorkerSet::new(repository, dir.path().join("logs"), test_policy()),
+            WorkerSet::new(repository, dir.path().join("logs"), policy),
             store,
         )
     }
@@ -247,5 +252,86 @@ mod tests {
                 record.name
             );
         }
+    }
+
+    #[tokio::test]
+    async fn a_paused_process_is_never_launched() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let (mut workers, store) = open_set(&dir).await;
+        store.pause("api").await.expect("pause should succeed");
+
+        workers.spawn(&shell_entry("api", "sleep 5"));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let records = store.list().await.expect("list should succeed");
+        let api = records.iter().find(|record| record.name == "api").unwrap();
+        assert_eq!(api.status, ProcessStatus::Stopped);
+        assert_eq!(api.pid, None);
+
+        workers.stop_all().await.expect("stop_all should succeed");
+    }
+
+    #[tokio::test]
+    async fn pausing_a_running_process_prevents_its_relaunch_after_it_exits() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let policy = Policy {
+            initial_backoff: Duration::from_millis(50),
+            ..test_policy()
+        };
+        let (mut workers, store) = open_set_with_policy(&dir, policy).await;
+        workers.spawn(&shell_entry("api", "sleep 1"));
+        assert!(
+            wait_until(Duration::from_secs(2), &store, "api", |record| {
+                record.status == ProcessStatus::Running
+            })
+            .await
+        );
+
+        store.pause("api").await.expect("pause should succeed");
+
+        assert!(
+            wait_until(Duration::from_secs(2), &store, "api", |record| {
+                record.status == ProcessStatus::Stopped
+            })
+            .await,
+            "expected the process to exit and stay stopped rather than relaunch"
+        );
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let records = store.list().await.expect("list should succeed");
+        let api = records.iter().find(|record| record.name == "api").unwrap();
+        assert_eq!(
+            api.status,
+            ProcessStatus::Stopped,
+            "should not relaunch while paused"
+        );
+        assert_eq!(api.pid, None);
+
+        workers.stop_all().await.expect("stop_all should succeed");
+    }
+
+    #[tokio::test]
+    async fn resuming_a_paused_process_lets_it_launch() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let (mut workers, store) = open_set(&dir).await;
+        store.pause("api").await.expect("pause should succeed");
+        workers.spawn(&shell_entry("api", "sleep 5"));
+        assert!(
+            wait_until(Duration::from_secs(2), &store, "api", |record| {
+                record.status == ProcessStatus::Stopped
+            })
+            .await
+        );
+
+        store.resume("api").await.expect("resume should succeed");
+
+        assert!(
+            wait_until(Duration::from_secs(2), &store, "api", |record| {
+                record.status == ProcessStatus::Running
+            })
+            .await,
+            "expected the process to launch once resumed"
+        );
+
+        workers.stop_all().await.expect("stop_all should succeed");
     }
 }

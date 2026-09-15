@@ -71,6 +71,9 @@ pub struct ProcessRecord {
     pub last_exit_code: Option<i32>,
     pub started_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
+    /// Whether this process has been paused: intentionally kept from relaunching, independent
+    /// of its observed runtime `status`.
+    pub paused: bool,
 }
 
 impl ProcessRecord {
@@ -90,6 +93,7 @@ impl ProcessRecord {
             last_exit_code: None,
             started_at: None,
             updated_at: Utc::now(),
+            paused: false,
         }
     }
 }

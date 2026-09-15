@@ -1,7 +1,18 @@
 use std::time::Duration;
 
+use anyhow::{Result, bail};
+
 use crate::feature::proc::control::{self, ProcessControl};
 use crate::feature::store::{ProcessRecord, ProcessStatus};
+
+/// Looks up `name` among `records`, erroring with the same wording the store itself uses
+/// for an unknown process name. Shared by `restart`, `pause`, and `resume`.
+pub fn find<'a>(records: &'a [ProcessRecord], name: &str) -> Result<&'a ProcessRecord> {
+    let Some(record) = records.iter().find(|record| record.name == name) else {
+        bail!("no tracked process named '{name}'");
+    };
+    Ok(record)
+}
 
 /// What happened to one tracked process after a kill request.
 #[derive(Debug)]
@@ -106,6 +117,26 @@ mod tests {
             pid,
             ..ProcessRecord::starting("api", "shell", "cargo run")
         }
+    }
+
+    #[test]
+    fn find_returns_the_named_record() {
+        let records = vec![record_with_status(ProcessStatus::Running, Some(1))];
+
+        let found = find(&records, "api").expect("known name should be found");
+
+        assert_eq!(found.name, "api");
+    }
+
+    #[test]
+    fn find_errors_on_an_unknown_name() {
+        let error = find(&[], "nope").expect_err("unknown name should error");
+
+        assert!(
+            error
+                .to_string()
+                .contains("no tracked process named 'nope'")
+        );
     }
 
     #[test]

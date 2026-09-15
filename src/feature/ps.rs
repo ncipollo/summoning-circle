@@ -88,4 +88,14 @@ mod tests {
 
         assert!(json.contains("\"status\": \"stale\""));
     }
+
+    #[test]
+    fn render_json_includes_the_paused_flag() {
+        let mut record = record_with_status(ProcessStatus::Stopped, None);
+        record.paused = true;
+
+        let json = super::render_json(&[record]).expect("serialization should succeed");
+
+        assert!(json.contains("\"paused\": true"));
+    }
 }

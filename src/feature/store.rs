@@ -1,3 +1,4 @@
+mod pause;
 pub mod record;
 mod supervisor;
 
@@ -42,7 +43,10 @@ impl Store {
         Ok(Self { pool })
     }
 
-    /// Inserts a new record, or replaces an existing one with the same name.
+    /// Inserts a new record, or replaces an existing one with the same name. `paused` is
+    /// deliberately absent from the column list: a fresh row defaults to unpaused, but an
+    /// existing row's paused flag is left untouched, so reconciling the config on supervisor
+    /// startup can never clear a pause that was set while it wasn't running.
     pub async fn upsert(&self, record: &ProcessRecord) -> Result<()> {
         sqlx::query(
             "INSERT INTO processes

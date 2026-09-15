@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use anyhow::{Result, anyhow};
 use clap::{Parser, Subcommand};
 
-use commands::{install, killall, ps, restart, run as run_command, uninstall};
+use commands::{install, killall, pause, ps, restart, resume, run as run_command, uninstall};
 use context::Context;
 
 #[derive(Debug, Parser)]
@@ -45,6 +45,16 @@ pub enum Command {
         /// Name of the process, as it appears in the config file
         name: String,
     },
+    /// Terminate a tracked process and prevent it from being relaunched
+    Pause {
+        /// Name of the process, as it appears in the config file
+        name: String,
+    },
+    /// Allow a paused process to be relaunched again
+    Resume {
+        /// Name of the process, as it appears in the config file
+        name: String,
+    },
 }
 
 pub async fn route(cli: Cli) -> Result<()> {
@@ -53,7 +63,9 @@ pub async fn route(cli: Cli) -> Result<()> {
     }
 
     let command = cli.command.ok_or_else(|| {
-        anyhow!("a subcommand is required: install, uninstall, run, ps, killall, restart")
+        anyhow!(
+            "a subcommand is required: install, uninstall, run, ps, killall, restart, pause, resume"
+        )
     })?;
     let config_override = cli.config.clone();
     let context = Context::new(cli.config)?;
@@ -65,6 +77,8 @@ pub async fn route(cli: Cli) -> Result<()> {
         Command::Ps { json } => ps::run(&context, json).await,
         Command::Killall => killall::run(&context).await,
         Command::Restart { name } => restart::run(&context, &name).await,
+        Command::Pause { name } => pause::run(&context, &name).await,
+        Command::Resume { name } => resume::run(&context, &name).await,
     }
 }
 
@@ -157,6 +171,30 @@ mod tests {
         assert_eq!(
             cli.command,
             Some(Command::Restart {
+                name: "api".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn parses_pause_command_with_name() {
+        let cli = Cli::parse_from(["summoning-circle", "pause", "api"]);
+
+        assert_eq!(
+            cli.command,
+            Some(Command::Pause {
+                name: "api".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn parses_resume_command_with_name() {
+        let cli = Cli::parse_from(["summoning-circle", "resume", "api"]);
+
+        assert_eq!(
+            cli.command,
+            Some(Command::Resume {
                 name: "api".to_string()
             })
         );

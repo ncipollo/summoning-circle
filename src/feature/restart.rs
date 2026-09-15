@@ -1,19 +1,10 @@
 use std::time::Duration;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 
 use crate::feature::kill::{self, Outcome};
 use crate::feature::proc::control::{self, ProcessControl};
 use crate::feature::store::{ProcessRecord, SupervisorRecord};
-
-/// Looks up `name` among `records`, erroring with the same wording the store itself uses
-/// for an unknown process name.
-fn find<'a>(records: &'a [ProcessRecord], name: &str) -> Result<&'a ProcessRecord> {
-    let Some(record) = records.iter().find(|record| record.name == name) else {
-        bail!("no tracked process named '{name}'");
-    };
-    Ok(record)
-}
 
 /// Restarts the named process: signals it (escalating to SIGKILL after `grace`), and reports
 /// whether a live supervisor is around to notice the exit and relaunch it.
@@ -24,13 +15,10 @@ pub async fn restart(
     grace: Duration,
     control: &dyn ProcessControl,
 ) -> Result<(Outcome, bool)> {
-    let record = find(records, name)?;
+    let record = kill::find(records, name)?;
     let outcome = kill::kill_one(record, grace, control).await;
-    let supervisor_alive = supervisor.is_some_and(|claim| {
-        control::identifies_same_process(claim.pid, claim.start_time, control)
-    });
 
-    Ok((outcome, supervisor_alive))
+    Ok((outcome, control::supervisor_alive(supervisor, control)))
 }
 
 /// Renders the outcome, adding a note when nothing will relaunch the process.
