@@ -17,7 +17,11 @@ pub fn summon_for(entry: &ProcessEntry, log_dir: &Path) -> Box<dyn Summon> {
     match &entry.kind {
         ProcessKind::Shell { command, cwd, env } => Box::new(ShellSummon {
             command: command.clone(),
-            cwd: cwd.clone(),
+            // Defaults to the user's home directory, as documented in the README and
+            // `--info config`. Without this, a process with no explicit `cwd` inherits the
+            // supervisor's own working directory, which under the installed launch agent is
+            // `/` (launchd sets no `WorkingDirectory`), not the user's home.
+            cwd: cwd.clone().or_else(dirs::home_dir),
             env: env.clone(),
             log_path: log_dir.join(format!("{}.log", entry.name)),
         }),
@@ -143,5 +147,24 @@ mod tests {
                 .expect("work dir should canonicalize")
                 .to_string_lossy()
         );
+    }
+
+    #[tokio::test]
+    async fn defaults_to_the_home_directory_when_no_cwd_is_configured() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let entry = entry("api", "pwd", None, None);
+
+        let mut child = summon_for(&entry, dir.path())
+            .spawn()
+            .expect("spawn should succeed");
+        child.wait().await.expect("wait should succeed");
+
+        let contents =
+            fs::read_to_string(dir.path().join("api.log")).expect("log file should exist");
+        let home = dirs::home_dir()
+            .expect("test environment should have a home directory")
+            .canonicalize()
+            .expect("home dir should canonicalize");
+        assert_eq!(contents.trim(), home.to_string_lossy());
     }
 }
