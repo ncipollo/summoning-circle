@@ -26,7 +26,7 @@ pub fn render(records: &[ProcessRecord], now: DateTime<Utc>) -> String {
 fn row(record: &ProcessRecord, now: DateTime<Utc>) -> [String; 6] {
     [
         record.name.clone(),
-        record.status.as_str().to_string(),
+        status_cell(record),
         record
             .pid
             .map_or_else(|| "-".to_string(), |pid| pid.to_string()),
@@ -34,6 +34,14 @@ fn row(record: &ProcessRecord, now: DateTime<Utc>) -> [String; 6] {
         uptime(record, now),
         record.command.clone(),
     ]
+}
+
+fn status_cell(record: &ProcessRecord) -> String {
+    if record.paused {
+        format!("{} (paused)", record.status.as_str())
+    } else {
+        record.status.as_str().to_string()
+    }
 }
 
 fn uptime(record: &ProcessRecord, now: DateTime<Utc>) -> String {
@@ -144,5 +152,24 @@ mod tests {
 
         assert!(output.contains("stale"));
         assert!(!output.contains("30m"));
+    }
+
+    #[test]
+    fn a_paused_process_is_marked_in_the_status_cell() {
+        let mut api = record(ProcessStatus::Stopped, None, None);
+        api.paused = true;
+
+        let output = render(&[api], now());
+
+        assert!(output.contains("stopped (paused)"));
+    }
+
+    #[test]
+    fn an_unpaused_process_has_no_paused_marker() {
+        let api = record(ProcessStatus::Running, Some(1), Some(now()));
+
+        let output = render(&[api], now());
+
+        assert!(!output.contains("(paused)"));
     }
 }

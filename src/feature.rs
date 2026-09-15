@@ -4,6 +4,7 @@ pub mod config;
 pub mod info;
 pub mod kill;
 pub mod launchd;
+pub mod pause;
 pub mod proc;
 pub mod ps;
 pub mod restart;

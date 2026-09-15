@@ -75,6 +75,11 @@ impl ProcessRepository {
     pub async fn tracked_pids(&self) -> Result<Vec<TrackedPid>> {
         self.store.tracked_pids().await
     }
+
+    /// Whether `name` is currently paused.
+    pub async fn is_paused(&self, name: &str) -> Result<bool> {
+        self.store.is_paused(name).await
+    }
 }
 
 #[cfg(test)]
@@ -249,5 +254,34 @@ mod tests {
         let listed = read_store.list().await.expect("list should succeed");
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].name, "tunnel");
+    }
+
+    #[tokio::test]
+    async fn is_paused_reflects_the_store() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let (repository, path) = open(&dir).await;
+        repository
+            .reconcile(
+                &[ProcessRecord::starting("api", "shell", "cargo run")],
+                &["api"],
+            )
+            .await
+            .expect("reconcile should succeed");
+        assert!(
+            !repository
+                .is_paused("api")
+                .await
+                .expect("read should succeed")
+        );
+
+        let store = Store::open(&path).await.expect("reader store should open");
+        store.pause("api").await.expect("pause should succeed");
+
+        assert!(
+            repository
+                .is_paused("api")
+                .await
+                .expect("read should succeed")
+        );
     }
 }

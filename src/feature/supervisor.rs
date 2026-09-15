@@ -158,6 +158,7 @@ mod tests {
             uptime_reset: Duration::from_secs(60),
             shutdown_grace: Duration::from_millis(500),
             config_debounce: Duration::from_millis(20),
+            pause_poll: Duration::from_millis(20),
         }
     }
 

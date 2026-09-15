@@ -3,6 +3,7 @@ use std::time::Duration;
 use tokio::time::{self, Instant};
 
 use crate::feature::proc;
+use crate::feature::store::SupervisorRecord;
 
 /// Abstracts liveness checks and signaling so callers can be tested without touching
 /// real processes.
@@ -43,6 +44,12 @@ pub fn identifies_same_process(
     control: &dyn ProcessControl,
 ) -> bool {
     expected_start_time.is_some() && control.start_time(pid) == expected_start_time
+}
+
+/// Whether `claim` still identifies a live supervisor. Shared by `restart`, `pause`, and
+/// `resume` to note when a signaled process has no supervisor around to relaunch it.
+pub fn supervisor_alive(claim: Option<SupervisorRecord>, control: &dyn ProcessControl) -> bool {
+    claim.is_some_and(|claim| identifies_same_process(claim.pid, claim.start_time, control))
 }
 
 /// Asks `pid` to terminate gracefully, escalating to SIGKILL after `grace` elapses.
@@ -204,5 +211,34 @@ pub mod tests {
         let control = FakeControl::alive_with_start_time(1, 111);
 
         assert!(!identifies_same_process(1, None, &control));
+    }
+
+    #[test]
+    fn supervisor_alive_is_false_with_no_claim() {
+        let control = FakeControl::default();
+
+        assert!(!supervisor_alive(None, &control));
+    }
+
+    #[test]
+    fn supervisor_alive_matches_a_live_claim() {
+        let control = FakeControl::alive_with_start_time(999, 111);
+        let claim = SupervisorRecord {
+            pid: 999,
+            start_time: Some(111),
+        };
+
+        assert!(supervisor_alive(Some(claim), &control));
+    }
+
+    #[test]
+    fn supervisor_alive_rejects_a_recycled_pid() {
+        let control = FakeControl::alive_with_start_time(999, 222);
+        let claim = SupervisorRecord {
+            pid: 999,
+            start_time: Some(111),
+        };
+
+        assert!(!supervisor_alive(Some(claim), &control));
     }
 }
