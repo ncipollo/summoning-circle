@@ -14,7 +14,7 @@ pub async fn run(context: &Context) -> Result<()> {
     }
 
     let store = Store::open(&context.db_path).await?;
-    let records = ps::resolve(store.list().await?);
+    let records = ps::resolve(store.list().await?).await;
 
     let outcomes = kill::kill_all(&records, Policy::default().shutdown_grace, &SystemControl).await;
     print!("{}", kill::render(&outcomes));

@@ -103,7 +103,9 @@ mod tests {
 
         let api = &config.processes[0];
         assert_eq!(api.name, "api");
-        let super::process::ProcessKind::Shell { command, cwd, env } = &api.kind;
+        let super::process::ProcessKind::Shell { command, cwd, env } = &api.kind else {
+            panic!("expected a shell entry");
+        };
         assert_eq!(command, "cargo run --release");
         assert_eq!(
             cwd.as_deref(),
@@ -116,7 +118,9 @@ mod tests {
 
         let tunnel = &config.processes[1];
         assert_eq!(tunnel.name, "tunnel");
-        let super::process::ProcessKind::Shell { cwd, env, .. } = &tunnel.kind;
+        let super::process::ProcessKind::Shell { cwd, env, .. } = &tunnel.kind else {
+            panic!("expected a shell entry");
+        };
         assert_eq!(*cwd, None);
         assert_eq!(*env, None);
     }

@@ -33,16 +33,16 @@ impl ProcessRepository {
         self.store.remove(name).await
     }
 
-    /// Updates a tracked process's kind/command in place, used when a live config change
+    /// Updates a tracked process's kind/command(s) in place, used when a live config change
     /// alters an existing process's definition, just ahead of restarting it.
-    pub async fn update_definition(&self, name: &str, kind: &str, command: &str) -> Result<()> {
-        self.store.update_definition(name, kind, command).await
+    pub async fn update_definition(&self, definition: &ProcessRecord) -> Result<()> {
+        self.store.update_definition(definition).await
     }
 
     pub async fn record_running(
         &self,
         name: &str,
-        pid: u32,
+        pid: Option<u32>,
         start_time: Option<i64>,
     ) -> Result<()> {
         self.store.mark_running(name, pid, start_time).await
@@ -129,7 +129,7 @@ mod tests {
         let read_store = Store::open(&path).await.expect("reader store should open");
 
         repository
-            .record_running("api", 123, Some(456))
+            .record_running("api", Some(123), Some(456))
             .await
             .expect("record_running should succeed");
         assert_eq!(
@@ -147,7 +147,7 @@ mod tests {
         );
 
         repository
-            .record_running("api", 456, Some(789))
+            .record_running("api", Some(456), Some(789))
             .await
             .expect("record_running should succeed");
         repository
@@ -202,7 +202,7 @@ mod tests {
             .await
             .expect("reconcile should succeed");
         repository
-            .record_running("api", 123, Some(456))
+            .record_running("api", Some(123), Some(456))
             .await
             .expect("record_running should succeed");
 
@@ -225,7 +225,7 @@ mod tests {
             .await
             .expect("track_new should succeed");
         repository
-            .record_running("api", 123, Some(456))
+            .record_running("api", Some(123), Some(456))
             .await
             .expect("record_running should succeed after track_new");
     }

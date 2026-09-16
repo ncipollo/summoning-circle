@@ -36,8 +36,9 @@ By default it looks for `~/.summoning-circle/config.toml`. Pass `--config <PATH>
 different file instead. The `~/.summoning-circle` directory also holds the SQLite database that
 tracks running process state.
 
-Each process is declared as a `[[process]]` entry, tagged by `type`. The only type today is
-`shell`, which launches a command via the shell and keeps it alive:
+Each process is declared as a `[[process]]` entry, tagged by `type`, either `shell` (a command
+launched and kept alive by holding its child process) or `daemon` (software with its own
+start/stop/status commands, controlled through them instead of OS signals):
 
 ```toml
 [[process]]
@@ -51,12 +52,29 @@ env = { RUST_LOG = "info" }         # optional
 name = "tunnel"
 type = "shell"
 command = "ssh -N -L 5432:localhost:5432 db-host"
+
+[[process]]
+name = "postgres"
+type = "daemon"
+start = "pg_ctl start"
+stop = "pg_ctl stop"
+status = "pg_ctl status"
 ```
+
+`type = "shell"`:
 
 | Field     | Required | Description                                    |
 | --------- | -------- | ------------------------------------------------ |
 | `name`    | yes      | Unique identifier for the process                |
-| `type`    | yes      | Process kind; only `shell` is supported today    |
 | `command` | yes      | Shell command used to launch the process         |
 | `cwd`     | no       | Working directory for the command                |
 | `env`     | no       | Extra environment variables for the command      |
+
+`type = "daemon"`:
+
+| Field    | Required | Description                                                |
+| -------- | -------- | ------------------------------------------------------------ |
+| `name`   | yes      | Unique identifier for the process                            |
+| `start`  | yes      | Command that launches the daemon                             |
+| `stop`   | yes      | Command that shuts the daemon down                           |
+| `status` | yes      | Command whose exit code reports liveness: 0 alive, non-zero dead |

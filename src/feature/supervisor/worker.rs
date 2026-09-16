@@ -1,3 +1,5 @@
+mod poll;
+
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
@@ -8,7 +10,7 @@ use tracing::info;
 use super::backoff::Backoff;
 use super::policy::Policy;
 use super::repository::ProcessRepository;
-use super::shell::Summon;
+use super::shell::{Lifecycle, Summon};
 use crate::feature::proc;
 
 /// What ended a single launch attempt.
@@ -80,9 +82,28 @@ async fn wait_while_paused(
     Ok(true)
 }
 
-/// Spawns one child and runs it to completion: exit, shutdown, or a pause that raced the
-/// spawn closely enough that this launch never got a chance to run unpaused.
+/// Spawns and runs one process to completion: exit, shutdown, or a pause that raced the
+/// launch closely enough that it never got a chance to run unpaused. Dispatches on the
+/// summoned kind's `Lifecycle`, since a daemon has no child handle to wait on for the
+/// duration of its life and is stopped through its own command rather than a signal.
 async fn launch(
+    name: &str,
+    summon: &dyn Summon,
+    repository: &ProcessRepository,
+    shutdown: &mut watch::Receiver<bool>,
+    policy: &Policy,
+) -> Result<Ended> {
+    match summon.lifecycle() {
+        Lifecycle::Signal => launch_signal(name, summon, repository, shutdown, policy).await,
+        Lifecycle::Daemon(daemon) => {
+            poll::launch_daemon(name, summon, daemon, repository, shutdown, policy).await
+        }
+    }
+}
+
+/// Spawns a signal-controlled child and runs it to completion: exit, shutdown, or a pause
+/// that raced the spawn closely enough that this launch never got a chance to run unpaused.
+async fn launch_signal(
     name: &str,
     summon: &dyn Summon,
     repository: &ProcessRepository,
@@ -92,7 +113,7 @@ async fn launch(
     let mut child = summon.spawn()?;
     let pid = child.id().context("spawned child is missing a pid")?;
     repository
-        .record_running(name, pid, proc::start_time(pid))
+        .record_running(name, Some(pid), proc::start_time(pid))
         .await?;
     info!(name, pid, "launched process");
 

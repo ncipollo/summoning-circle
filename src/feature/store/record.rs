@@ -74,6 +74,14 @@ pub struct ProcessRecord {
     /// Whether this process has been paused: intentionally kept from relaunching, independent
     /// of its observed runtime `status`.
     pub paused: bool,
+    /// The command that stops a daemon-kind process, in place of an OS signal. `None` for a
+    /// `Shell` record.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_command: Option<String>,
+    /// The command that reports a daemon-kind process's liveness (exit 0 = alive). `None` for
+    /// a `Shell` record.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_command: Option<String>,
 }
 
 impl ProcessRecord {
@@ -94,7 +102,21 @@ impl ProcessRecord {
             started_at: None,
             updated_at: Utc::now(),
             paused: false,
+            stop_command: None,
+            status_command: None,
         }
+    }
+
+    /// Attaches a daemon's `stop`/`status` commands, used in place of OS signals and pid
+    /// liveness checks. Chains onto `starting` so daemon and shell records share one constructor.
+    pub fn with_daemon_commands(
+        mut self,
+        stop_command: impl Into<String>,
+        status_command: impl Into<String>,
+    ) -> Self {
+        self.stop_command = Some(stop_command.into());
+        self.status_command = Some(status_command.into());
+        self
     }
 }
 

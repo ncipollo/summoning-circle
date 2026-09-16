@@ -216,7 +216,7 @@ mod tests {
             .await
             .expect("reconcile should succeed");
         repository
-            .record_running("api", 42, Some(111))
+            .record_running("api", Some(42), Some(111))
             .await
             .expect("record_running should succeed");
         let control = FakeControl {
@@ -244,7 +244,7 @@ mod tests {
             .await
             .expect("reconcile should succeed");
         repository
-            .record_running("api", 42, Some(111))
+            .record_running("api", Some(42), Some(111))
             .await
             .expect("record_running should succeed");
         let control = FakeControl::alive_with_start_time(42, 111);
@@ -268,7 +268,7 @@ mod tests {
             .await
             .expect("reconcile should succeed");
         repository
-            .record_running("api", 42, Some(111))
+            .record_running("api", Some(42), Some(111))
             .await
             .expect("record_running should succeed");
         let control = FakeControl::alive_with_start_time(42, 999);
@@ -293,7 +293,7 @@ mod tests {
             .await
             .expect("reconcile should succeed");
         repository
-            .record_running("api", 42, None)
+            .record_running("api", Some(42), None)
             .await
             .expect("record_running should succeed");
         let control = FakeControl::alive_with_start_time(42, 111);

@@ -1,5 +1,6 @@
 mod backoff;
 mod config_watch;
+pub mod daemon;
 mod diff;
 pub mod policy;
 mod repository;
@@ -108,9 +109,8 @@ impl Supervisor {
             workers.spawn(entry);
         }
         for entry in &changes.changed {
-            let (kind, command) = kind_and_command(entry);
             self.repository
-                .update_definition(&entry.name, kind, command)
+                .update_definition(&starting_record(entry))
                 .await?;
             workers.restart(entry).await?;
         }
@@ -127,15 +127,18 @@ impl Supervisor {
     }
 }
 
-fn kind_and_command(entry: &ProcessEntry) -> (&'static str, &str) {
-    match &entry.kind {
-        ProcessKind::Shell { command, .. } => ("shell", command.as_str()),
-    }
-}
-
 fn starting_record(entry: &ProcessEntry) -> ProcessRecord {
-    let (kind, command) = kind_and_command(entry);
-    ProcessRecord::starting(entry.name.as_str(), kind, command)
+    match &entry.kind {
+        ProcessKind::Shell { command, .. } => {
+            ProcessRecord::starting(entry.name.as_str(), "shell", command)
+        }
+        ProcessKind::Daemon {
+            start,
+            stop,
+            status,
+        } => ProcessRecord::starting(entry.name.as_str(), "daemon", start)
+            .with_daemon_commands(stop, status),
+    }
 }
 
 #[cfg(test)]
@@ -159,6 +162,9 @@ mod tests {
             shutdown_grace: Duration::from_millis(500),
             config_debounce: Duration::from_millis(20),
             pause_poll: Duration::from_millis(20),
+            status_poll: Duration::from_millis(20),
+            daemon_start_grace: Duration::from_millis(200),
+            daemon_command_timeout: Duration::from_secs(2),
         }
     }
 

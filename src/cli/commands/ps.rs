@@ -12,7 +12,7 @@ pub async fn run(context: &Context, json: bool) -> Result<()> {
     }
 
     let store = Store::open(&context.db_path).await?;
-    let records = ps::resolve(store.list().await?);
+    let records = ps::resolve(store.list().await?).await;
 
     if json {
         println!("{}", ps::render_json(&records)?);
