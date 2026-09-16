@@ -32,7 +32,7 @@ impl Default for Policy {
             shutdown_grace: Duration::from_secs(5),
             config_debounce: Duration::from_millis(300),
             pause_poll: Duration::from_secs(2),
-            status_poll: Duration::from_secs(2),
+            status_poll: Duration::from_secs(60),
             daemon_start_grace: Duration::from_secs(10),
             daemon_command_timeout: Duration::from_secs(10),
         }
