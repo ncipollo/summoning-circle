@@ -13,7 +13,7 @@ pub async fn run(context: &Context, name: &str) -> Result<()> {
     }
 
     let store = Store::open(&context.db_path).await?;
-    let records = ps::resolve(store.list().await?);
+    let records = ps::resolve(store.list().await?).await;
     let supervisor = store.supervisor().await?;
 
     let (outcome, supervisor_alive) = restart::restart(

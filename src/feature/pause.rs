@@ -21,7 +21,7 @@ pub async fn pause(
 ) -> Result<Outcome> {
     store.pause(name).await?;
 
-    let records = ps::resolve(store.list().await?);
+    let records = ps::resolve(store.list().await?).await;
     let record = kill::find(&records, name)?;
     Ok(kill::kill_one(record, grace, control).await)
 }
@@ -75,7 +75,7 @@ mod tests {
         let dir = TempDir::new().expect("temp dir should create");
         let store = open_store(&dir).await;
         store
-            .mark_running("api", 1, Some(0))
+            .mark_running("api", Some(1), Some(0))
             .await
             .expect("mark_running should succeed");
         let control = FakeControl {
@@ -87,7 +87,7 @@ mod tests {
             .await
             .expect("pause should succeed");
 
-        assert!(matches!(outcome, Outcome::Signaled { pid: 1, .. }));
+        assert!(matches!(outcome, Outcome::Signaled { pid: Some(1), .. }));
         assert!(store.is_paused("api").await.expect("read should succeed"));
     }
 
@@ -189,7 +189,7 @@ mod tests {
     fn render_pause_includes_the_signal_line_and_a_paused_note() {
         let outcome = Outcome::Signaled {
             name: "api".to_string(),
-            pid: 1,
+            pid: Some(1),
         };
 
         let rendered = render_pause("api", &outcome);

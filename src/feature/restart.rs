@@ -74,7 +74,7 @@ mod tests {
                 .await
                 .expect("restart should succeed");
 
-        assert!(matches!(outcome, Outcome::Signaled { pid: 1, .. }));
+        assert!(matches!(outcome, Outcome::Signaled { pid: Some(1), .. }));
         assert!(!supervisor_alive);
     }
 
@@ -122,7 +122,7 @@ mod tests {
     fn render_notes_the_missing_supervisor_when_a_process_was_signaled() {
         let outcome = Outcome::Signaled {
             name: "api".to_string(),
-            pid: 1,
+            pid: Some(1),
         };
 
         let rendered = render(&outcome, false);
@@ -134,7 +134,7 @@ mod tests {
     fn render_omits_the_note_when_a_supervisor_is_alive() {
         let outcome = Outcome::Signaled {
             name: "api".to_string(),
-            pid: 1,
+            pid: Some(1),
         };
 
         let rendered = render(&outcome, true);

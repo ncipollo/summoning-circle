@@ -1,10 +1,15 @@
 pub mod control;
 
+use std::process::Stdio;
+use std::time::Duration;
+
 use nix::errno::Errno;
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use sysinfo::{Pid as SysPid, ProcessRefreshKind, ProcessesToUpdate, System};
-use tracing::warn;
+use tokio::process::Command;
+use tokio::time;
+use tracing::{info, warn};
 
 /// Checks whether `pid` is still alive by sending it no signal. Only
 /// `ESRCH` ("no such process") is treated as dead; any other error (e.g.
@@ -32,6 +37,47 @@ pub fn kill(pid: u32) {
 fn send_to_group(pid: u32, sig: Signal) {
     if let Err(error) = signal::kill(Pid::from_raw(-(pid as i32)), sig) {
         warn!(pid, %sig, %error, "could not signal process group");
+    }
+}
+
+/// Whether a daemon-kind process's `status` command reports it alive (exit 0). Shared by every
+/// caller that runs a daemon health check — the supervisor's own monitoring loop, `ps`, and
+/// `kill` — so the timeout/logging behavior can't drift between them. A probe that exceeds
+/// `timeout` is treated as alive, with a warning: a hung probe must never be read as death.
+pub async fn daemon_status_ok(name: &str, status_command: &str, timeout: Duration) -> bool {
+    let mut command = Command::new("sh");
+    command
+        .arg("-c")
+        .arg(status_command)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    if let Some(home) = dirs::home_dir() {
+        command.current_dir(home);
+    }
+
+    match time::timeout(timeout, command.status()).await {
+        Ok(Ok(status)) => {
+            let alive = status.success();
+            info!(
+                name,
+                command = status_command,
+                alive,
+                "checked daemon status"
+            );
+            alive
+        }
+        Ok(Err(error)) => {
+            warn!(name, command = status_command, %error, "could not run daemon status check");
+            false
+        }
+        Err(_) => {
+            warn!(
+                name,
+                command = status_command,
+                "daemon status check timed out; assuming alive"
+            );
+            true
+        }
     }
 }
 

@@ -12,6 +12,13 @@ env = { RUST_LOG = \"info\" }         # optional
 name = \"tunnel\"
 type = \"shell\"
 command = \"ssh -N -L 5432:localhost:5432 db-host\"
+
+[[process]]
+name = \"postgres\"
+type = \"daemon\"
+start = \"pg_ctl start\"
+stop = \"pg_ctl stop\"
+status = \"pg_ctl status\"
 ";
 
 pub fn render() -> String {
@@ -20,15 +27,21 @@ pub fn render() -> String {
          summoning-circle reads a TOML config file listing the processes it should\n\
          manage. By default it looks for ~/.summoning-circle/config.toml; pass\n\
          --config <PATH> to use a different file instead.\n\n\
-         Each process is declared as a [[process]] entry, tagged by `type`. The\n\
-         only type today is `shell`, which launches a command via the shell and\n\
-         keeps it alive:\n\n{CONFIG_EXAMPLE}\n\
-         FIELDS\n\
+         Each process is declared as a [[process]] entry, tagged by `type`, either\n\
+         `shell` (a command launched and kept alive by holding its child process) or\n\
+         `daemon` (software with its own start/stop/status commands, controlled\n\
+         through them instead of OS signals):\n\n{CONFIG_EXAMPLE}\n\
+         FIELDS (type = \"shell\")\n\
          \x20 name     required  unique identifier for the process\n\
-         \x20 type     required  process kind; only \"shell\" is supported today\n\
          \x20 command  required  shell command used to launch the process\n\
          \x20 cwd      optional  working directory for the command\n\
          \x20 env      optional  extra environment variables for the command\n\n\
+         FIELDS (type = \"daemon\")\n\
+         \x20 name     required  unique identifier for the process\n\
+         \x20 start    required  command that launches the daemon\n\
+         \x20 stop     required  command that shuts the daemon down\n\
+         \x20 status   required  command whose exit code reports liveness: 0 while\n\
+         \x20                    alive, non-zero once dead\n\n\
          LIVE RELOAD\n\
          \x20 While `run` is active, editing this file adds, removes, or restarts the\n\
          \x20 affected processes automatically. Invalid edits are logged and ignored\n\

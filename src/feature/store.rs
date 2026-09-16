@@ -1,3 +1,4 @@
+mod lifecycle;
 mod pause;
 pub mod record;
 mod supervisor;
@@ -50,8 +51,9 @@ impl Store {
     pub async fn upsert(&self, record: &ProcessRecord) -> Result<()> {
         sqlx::query(
             "INSERT INTO processes
-                (name, kind, command, pid, status, restart_count, last_exit_code, started_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (name, kind, command, pid, status, restart_count, last_exit_code, started_at,
+                 updated_at, stop_command, status_command)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(name) DO UPDATE SET
                 kind = excluded.kind,
                 command = excluded.command,
@@ -60,7 +62,9 @@ impl Store {
                 restart_count = excluded.restart_count,
                 last_exit_code = excluded.last_exit_code,
                 started_at = excluded.started_at,
-                updated_at = excluded.updated_at",
+                updated_at = excluded.updated_at,
+                stop_command = excluded.stop_command,
+                status_command = excluded.status_command",
         )
         .bind(&record.name)
         .bind(&record.kind)
@@ -71,6 +75,8 @@ impl Store {
         .bind(record.last_exit_code)
         .bind(record.started_at)
         .bind(record.updated_at)
+        .bind(&record.stop_command)
+        .bind(&record.status_command)
         .execute(&self.pool)
         .await
         .with_context(|| format!("could not save process '{}'", record.name))?;
@@ -78,97 +84,27 @@ impl Store {
         Ok(())
     }
 
-    /// Marks a process as running with the given pid and start time, bumping
-    /// `restart_count` if it had exited or been stopped (e.g. by a config-triggered restart).
-    pub async fn mark_running(&self, name: &str, pid: u32, start_time: Option<i64>) -> Result<()> {
-        let result = sqlx::query(
-            "UPDATE processes
-                SET pid = ?1,
-                    start_time = ?2,
-                    status = 'running',
-                    started_at = ?3,
-                    updated_at = ?3,
-                    restart_count = restart_count +
-                        CASE WHEN status IN ('exited', 'stopped') THEN 1 ELSE 0 END
-             WHERE name = ?4",
-        )
-        .bind(pid)
-        .bind(start_time)
-        .bind(Utc::now())
-        .bind(name)
-        .execute(&self.pool)
-        .await
-        .with_context(|| format!("could not mark '{name}' as running"))?;
-
-        if result.rows_affected() == 0 {
-            bail!("no tracked process named '{name}'");
-        }
-        Ok(())
-    }
-
-    /// Updates a tracked process's kind/command in place, leaving its status, pid, and
+    /// Updates a tracked process's kind/command(s) in place, leaving its status, pid, and
     /// restart_count untouched. Used when a live config change alters an existing process's
     /// definition, just ahead of restarting it.
-    pub async fn update_definition(&self, name: &str, kind: &str, command: &str) -> Result<()> {
-        let result = sqlx::query(
-            "UPDATE processes SET kind = ?, command = ?, updated_at = ? WHERE name = ?",
-        )
-        .bind(kind)
-        .bind(command)
-        .bind(Utc::now())
-        .bind(name)
-        .execute(&self.pool)
-        .await
-        .with_context(|| format!("could not update definition for '{name}'"))?;
-
-        if result.rows_affected() == 0 {
-            bail!("no tracked process named '{name}'");
-        }
-        Ok(())
-    }
-
-    /// Marks a process as exited, clearing its pid and recording the exit code.
-    pub async fn mark_exited(&self, name: &str, exit_code: Option<i32>) -> Result<()> {
+    pub async fn update_definition(&self, definition: &ProcessRecord) -> Result<()> {
         let result = sqlx::query(
             "UPDATE processes
-                SET pid = NULL,
-                    start_time = NULL,
-                    status = 'exited',
-                    last_exit_code = ?,
-                    updated_at = ?
+                SET kind = ?, command = ?, stop_command = ?, status_command = ?, updated_at = ?
              WHERE name = ?",
         )
-        .bind(exit_code)
+        .bind(&definition.kind)
+        .bind(&definition.command)
+        .bind(&definition.stop_command)
+        .bind(&definition.status_command)
         .bind(Utc::now())
-        .bind(name)
+        .bind(&definition.name)
         .execute(&self.pool)
         .await
-        .with_context(|| format!("could not mark '{name}' as exited"))?;
+        .with_context(|| format!("could not update definition for '{}'", definition.name))?;
 
         if result.rows_affected() == 0 {
-            bail!("no tracked process named '{name}'");
-        }
-        Ok(())
-    }
-
-    /// Marks a process as stopped, clearing its pid.
-    pub async fn mark_stopped(&self, name: &str) -> Result<()> {
-        let result = sqlx::query(
-            "UPDATE processes
-                SET pid = NULL,
-                    start_time = NULL,
-                    status = 'stopped',
-                    updated_at = ?
-             WHERE name = ?",
-        )
-        .bind(Utc::now())
-        .bind(name)
-        .execute(&self.pool)
-        .await
-        .with_context(|| format!("could not mark '{name}' as stopped"))?;
-
-        if result.rows_affected() == 0 {
-            bail!("no tracked process named '{name}'");
+            bail!("no tracked process named '{}'", definition.name);
         }
         Ok(())
     }
@@ -181,13 +117,18 @@ impl Store {
             .context("could not list processes")
     }
 
-    /// Lists the pid and start time of every process that currently has a stored pid,
-    /// used to find orphans left behind by a previous supervisor.
+    /// Lists the pid and start time of every process that currently has a stored pid, used to
+    /// find orphans left behind by a previous supervisor. Daemon-kind processes are excluded: a
+    /// daemon's stored pid is its transient `start` command, which typically exits once the
+    /// daemon itself is running, so signaling it on reclaim would either be a no-op or (once
+    /// the pid is recycled) hit an unrelated process.
     pub async fn tracked_pids(&self) -> Result<Vec<TrackedPid>> {
-        sqlx::query_as("SELECT pid, start_time FROM processes WHERE pid IS NOT NULL")
-            .fetch_all(&self.pool)
-            .await
-            .context("could not list tracked pids")
+        sqlx::query_as(
+            "SELECT pid, start_time FROM processes WHERE pid IS NOT NULL AND status_command IS NULL",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .context("could not list tracked pids")
     }
 
     /// Removes tracked processes whose name is not in `keep`.
@@ -284,84 +225,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mark_running_sets_pid_and_status() {
-        let dir = TempDir::new().expect("temp dir should create");
-        let store = open_store(&dir).await;
-        store
-            .upsert(&ProcessRecord::starting("api", "shell", "cargo run"))
-            .await
-            .expect("upsert should succeed");
-
-        store
-            .mark_running("api", 123, Some(456))
-            .await
-            .expect("mark_running should succeed");
-        let records = store.list().await.expect("list should succeed");
-
-        assert_eq!(records[0].pid, Some(123));
-        assert_eq!(records[0].status, ProcessStatus::Running);
-        assert_eq!(records[0].restart_count, 0);
-    }
-
-    #[tokio::test]
-    async fn mark_running_after_exit_bumps_restart_count() {
-        let dir = TempDir::new().expect("temp dir should create");
-        let store = open_store(&dir).await;
-        store
-            .upsert(&ProcessRecord::starting("api", "shell", "cargo run"))
-            .await
-            .expect("upsert should succeed");
-        store
-            .mark_running("api", 123, Some(456))
-            .await
-            .expect("mark_running should succeed");
-
-        store
-            .mark_exited("api", Some(1))
-            .await
-            .expect("mark_exited should succeed");
-        let after_exit = store.list().await.expect("list should succeed");
-        assert_eq!(after_exit[0].pid, None);
-        assert_eq!(after_exit[0].status, ProcessStatus::Exited);
-        assert_eq!(after_exit[0].last_exit_code, Some(1));
-        assert_eq!(after_exit[0].restart_count, 0);
-
-        store
-            .mark_running("api", 456, Some(789))
-            .await
-            .expect("relaunch mark_running should succeed");
-        let after_relaunch = store.list().await.expect("list should succeed");
-        assert_eq!(after_relaunch[0].pid, Some(456));
-        assert_eq!(after_relaunch[0].restart_count, 1);
-    }
-
-    #[tokio::test]
-    async fn mark_running_after_stopped_bumps_restart_count() {
-        let dir = TempDir::new().expect("temp dir should create");
-        let store = open_store(&dir).await;
-        store
-            .upsert(&ProcessRecord::starting("api", "shell", "cargo run"))
-            .await
-            .expect("upsert should succeed");
-        store
-            .mark_running("api", 123, Some(456))
-            .await
-            .expect("mark_running should succeed");
-        store
-            .mark_stopped("api")
-            .await
-            .expect("mark_stopped should succeed");
-
-        store
-            .mark_running("api", 789, Some(111))
-            .await
-            .expect("relaunch mark_running should succeed");
-        let records = store.list().await.expect("list should succeed");
-
-        assert_eq!(records[0].restart_count, 1);
-    }
-
-    #[tokio::test]
     async fn update_definition_changes_command_without_touching_status_or_pid() {
         let dir = TempDir::new().expect("temp dir should create");
         let store = open_store(&dir).await;
@@ -370,12 +233,16 @@ mod tests {
             .await
             .expect("upsert should succeed");
         store
-            .mark_running("api", 123, Some(456))
+            .mark_running("api", Some(123), Some(456))
             .await
             .expect("mark_running should succeed");
 
         store
-            .update_definition("api", "shell", "cargo run --release")
+            .update_definition(&ProcessRecord::starting(
+                "api",
+                "shell",
+                "cargo run --release",
+            ))
             .await
             .expect("update_definition should succeed");
         let records = store.list().await.expect("list should succeed");
@@ -386,145 +253,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn update_definition_persists_daemon_commands() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let store = open_store(&dir).await;
+        store
+            .upsert(&ProcessRecord::starting("api", "shell", "cargo run"))
+            .await
+            .expect("upsert should succeed");
+
+        store
+            .update_definition(
+                &ProcessRecord::starting("api", "daemon", "pg_ctl start")
+                    .with_daemon_commands("pg_ctl stop", "pg_ctl status"),
+            )
+            .await
+            .expect("update_definition should succeed");
+        let records = store.list().await.expect("list should succeed");
+
+        assert_eq!(records[0].stop_command, Some("pg_ctl stop".to_string()));
+        assert_eq!(records[0].status_command, Some("pg_ctl status".to_string()));
+    }
+
+    #[tokio::test]
     async fn update_definition_on_unknown_name_errors() {
         let dir = TempDir::new().expect("temp dir should create");
         let store = open_store(&dir).await;
 
         let error = store
-            .update_definition("ghost", "shell", "echo hi")
+            .update_definition(&ProcessRecord::starting("ghost", "shell", "echo hi"))
             .await
             .expect_err("unknown process should error");
 
         assert!(error.to_string().contains("ghost"));
-    }
-
-    #[tokio::test]
-    async fn mark_running_on_unknown_name_errors() {
-        let dir = TempDir::new().expect("temp dir should create");
-        let store = open_store(&dir).await;
-
-        let error = store
-            .mark_running("ghost", 1, None)
-            .await
-            .expect_err("unknown process should error");
-
-        assert!(error.to_string().contains("ghost"));
-    }
-
-    #[tokio::test]
-    async fn mark_stopped_clears_pid() {
-        let dir = TempDir::new().expect("temp dir should create");
-        let store = open_store(&dir).await;
-        store
-            .upsert(&ProcessRecord::starting("api", "shell", "cargo run"))
-            .await
-            .expect("upsert should succeed");
-        store
-            .mark_running("api", 123, Some(456))
-            .await
-            .expect("mark_running should succeed");
-
-        store
-            .mark_stopped("api")
-            .await
-            .expect("mark_stopped should succeed");
-        let records = store.list().await.expect("list should succeed");
-
-        assert_eq!(records[0].pid, None);
-        assert_eq!(records[0].status, ProcessStatus::Stopped);
-    }
-
-    #[tokio::test]
-    async fn mark_stopped_on_unknown_name_errors() {
-        let dir = TempDir::new().expect("temp dir should create");
-        let store = open_store(&dir).await;
-
-        let error = store
-            .mark_stopped("ghost")
-            .await
-            .expect_err("unknown process should error");
-
-        assert!(error.to_string().contains("ghost"));
-    }
-
-    #[tokio::test]
-    async fn mark_exited_on_unknown_name_errors() {
-        let dir = TempDir::new().expect("temp dir should create");
-        let store = open_store(&dir).await;
-
-        let error = store
-            .mark_exited("ghost", None)
-            .await
-            .expect_err("unknown process should error");
-
-        assert!(error.to_string().contains("ghost"));
-    }
-
-    async fn start_time_of(store: &Store, name: &str) -> Option<i64> {
-        sqlx::query_scalar("SELECT start_time FROM processes WHERE name = ?")
-            .bind(name)
-            .fetch_one(&store.pool)
-            .await
-            .expect("query should succeed")
-    }
-
-    #[tokio::test]
-    async fn mark_running_persists_start_time() {
-        let dir = TempDir::new().expect("temp dir should create");
-        let store = open_store(&dir).await;
-        store
-            .upsert(&ProcessRecord::starting("api", "shell", "cargo run"))
-            .await
-            .expect("upsert should succeed");
-
-        store
-            .mark_running("api", 123, Some(456))
-            .await
-            .expect("mark_running should succeed");
-
-        assert_eq!(start_time_of(&store, "api").await, Some(456));
-    }
-
-    #[tokio::test]
-    async fn mark_exited_clears_start_time() {
-        let dir = TempDir::new().expect("temp dir should create");
-        let store = open_store(&dir).await;
-        store
-            .upsert(&ProcessRecord::starting("api", "shell", "cargo run"))
-            .await
-            .expect("upsert should succeed");
-        store
-            .mark_running("api", 123, Some(456))
-            .await
-            .expect("mark_running should succeed");
-
-        store
-            .mark_exited("api", Some(1))
-            .await
-            .expect("mark_exited should succeed");
-
-        assert_eq!(start_time_of(&store, "api").await, None);
-    }
-
-    #[tokio::test]
-    async fn mark_stopped_clears_start_time() {
-        let dir = TempDir::new().expect("temp dir should create");
-        let store = open_store(&dir).await;
-        store
-            .upsert(&ProcessRecord::starting("api", "shell", "cargo run"))
-            .await
-            .expect("upsert should succeed");
-        store
-            .mark_running("api", 123, Some(456))
-            .await
-            .expect("mark_running should succeed");
-
-        store
-            .mark_stopped("api")
-            .await
-            .expect("mark_stopped should succeed");
-
-        assert_eq!(start_time_of(&store, "api").await, None);
     }
 
     #[tokio::test]
@@ -540,7 +300,7 @@ mod tests {
             .await
             .expect("upsert should succeed");
         store
-            .mark_running("api", 123, Some(456))
+            .mark_running("api", Some(123), Some(456))
             .await
             .expect("mark_running should succeed");
 
@@ -552,6 +312,33 @@ mod tests {
         assert_eq!(pids.len(), 1);
         assert_eq!(pids[0].pid, 123);
         assert_eq!(pids[0].start_time, Some(456));
+    }
+
+    #[tokio::test]
+    async fn tracked_pids_excludes_daemon_kind_processes() {
+        let dir = TempDir::new().expect("temp dir should create");
+        let store = open_store(&dir).await;
+        store
+            .upsert(
+                &ProcessRecord::starting("api", "daemon", "pg_ctl start")
+                    .with_daemon_commands("pg_ctl stop", "pg_ctl status"),
+            )
+            .await
+            .expect("upsert should succeed");
+        store
+            .mark_running("api", Some(123), Some(456))
+            .await
+            .expect("mark_running should succeed");
+
+        let pids = store
+            .tracked_pids()
+            .await
+            .expect("tracked_pids should succeed");
+
+        assert!(
+            pids.is_empty(),
+            "a daemon's transient start pid should not be reclaimed"
+        );
     }
 
     #[tokio::test]
