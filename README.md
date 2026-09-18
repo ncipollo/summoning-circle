@@ -36,11 +36,10 @@ launchctl print gui/$(id -u)/com.ncipollo.summoning-circle
 
 ## Configuration
 
-`summoning-circle` reads a config file listing the processes it should manage.
+`summoning-circle` reads a config file listing the processes it should manage. Changes to the config file will automatically be detected and picked up by `summoning-circle`.
 
 By default it looks for `~/.summoning-circle/config.toml`. Pass `--config <PATH>` to use a
-different file instead. The `~/.summoning-circle` directory also holds the SQLite database that
-tracks running process state.
+different file instead.
 
 Each process is declared as a `[[process]]` entry, tagged by `type`, either `shell` (a command
 launched and kept alive by holding its child process) or `daemon` (software with its own
