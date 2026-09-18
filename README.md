@@ -1,36 +1,42 @@
 # summoning-circle
-Summon your processes and ensure they can never die
+Summon your processes and grant them (near) immortality!
+
+This CLI tool allows you to define processes you want to keep alive via a simple configuration. It exists primarily because I don't like interacting directly with `launchctl` 😅.
 
 ## Installing as a launch agent
 
-On macOS, `summoning-circle install` registers a `com.ncipollo.summoning-circle` launchd user
-agent that runs `summoning-circle run` at login and restarts it if it ever exits, so the circle
-itself can never die:
+summoning-circle can be installed to launchd on macOS so it launches at startup (then takes over supervising your processes).
 
-```
+```bash
 summoning-circle install
-```
-
-This writes `~/Library/LaunchAgents/com.ncipollo.summoning-circle.plist`, pointing at the current
-executable's absolute path, and loads it with `launchctl`. If `--config <PATH>` was passed to
-`install`, that flag is baked into the agent so it's used on every future launch. Logs go to
-`~/.summoning-circle/logs/agent.out.log` and `agent.err.log`. Check status with:
-
-```
-launchctl print gui/$(id -u)/com.ncipollo.summoning-circle
 ```
 
 To stop and remove the agent:
 
-```
+```bash
 summoning-circle uninstall
 ```
 
 `install` and `uninstall` are macOS-only; on other platforms they exit with an error.
 
+<details>
+<summary>Technical details</summary>
+
+On macOS, `summoning-circle install` registers a `com.ncipollo.summoning-circle` launchd user agent that runs `summoning-circle run` at login and restarts it if it ever exits, so the circle itself can never die.
+
+This writes `~/Library/LaunchAgents/com.ncipollo.summoning-circle.plist`, pointing at the current executable's absolute path, and loads it with `launchctl`. If `--config <PATH>` was passed to `install`, that flag is baked into the agent so it's used on every future launch. Logs go to `~/.summoning-circle/logs/agent.out.log` and `agent.err.log`.
+
+Check status with:
+
+```bash
+launchctl print gui/$(id -u)/com.ncipollo.summoning-circle
+```
+
+</details>
+
 ## Configuration
 
-`summoning-circle` reads a TOML config file listing the processes it should manage.
+`summoning-circle` reads a config file listing the processes it should manage.
 
 By default it looks for `~/.summoning-circle/config.toml`. Pass `--config <PATH>` to use a
 different file instead. The `~/.summoning-circle` directory also holds the SQLite database that
