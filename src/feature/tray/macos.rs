@@ -6,6 +6,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use objc2_core_foundation::CFRunLoop;
 use tao::event::{Event, StartCause};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tao::platform::macos::{ActivationPolicy, EventLoopExtMacOS};
@@ -25,7 +26,7 @@ enum UserEvent {
 /// Drives the menu-bar icon until the user quits it. `tao::EventLoop::run` never returns on
 /// macOS (it tears the process down itself once `ControlFlow::Exit` is observed), so the only
 /// way this function returns normally is if setup fails before `run` is reached.
-pub fn run(db_path: &Path) -> Result<()> {
+pub fn run(db_path: &Path, on_exit: impl FnOnce() + 'static) -> Result<()> {
     let poller = Poller::new(db_path);
     let mut event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     event_loop.set_activation_policy(ActivationPolicy::Accessory);
@@ -37,6 +38,7 @@ pub fn run(db_path: &Path) -> Result<()> {
     }));
 
     let mut tray_icon: Option<TrayIcon> = None;
+    let mut on_exit = Some(on_exit);
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::WaitUntil(Instant::now() + POLL_INTERVAL);
@@ -47,7 +49,7 @@ pub fn run(db_path: &Path) -> Result<()> {
                 refresh_tray_icon(&poller, tray_icon.as_ref())
             }
             Event::UserEvent(UserEvent::Menu(event)) => {
-                handle_menu_event(&event, control_flow);
+                handle_menu_event(&event, control_flow, &mut on_exit);
             }
             _ => {}
         }
@@ -70,11 +72,8 @@ fn init_tray_icon(poller: &Poller, tray_icon: &mut Option<TrayIcon>) {
         .expect("tray icon should build");
     *tray_icon = Some(built);
 
-    unsafe {
-        use objc2_core_foundation::CFRunLoop;
-        if let Some(main) = CFRunLoop::main() {
-            CFRunLoop::wake_up(&main);
-        }
+    if let Some(main) = CFRunLoop::main() {
+        main.wake_up();
     }
 }
 
@@ -93,10 +92,17 @@ fn refresh_tray_icon(poller: &Poller, tray_icon: Option<&TrayIcon>) {
     }
 }
 
-fn handle_menu_event(event: &MenuEvent, control_flow: &mut ControlFlow) {
+fn handle_menu_event(
+    event: &MenuEvent,
+    control_flow: &mut ControlFlow,
+    on_exit: &mut Option<impl FnOnce()>,
+) {
     let id = event.id.0.as_str();
     if id == menu::EXIT_ID {
         *control_flow = ControlFlow::Exit;
+        if let Some(on_exit) = on_exit.take() {
+            on_exit();
+        }
         return;
     }
     let Some(action) = Action::parse(id) else {

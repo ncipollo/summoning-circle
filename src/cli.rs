@@ -4,8 +4,9 @@ mod info;
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use clap::{Parser, Subcommand};
+use tokio::runtime::Runtime;
 
 use commands::{install, killall, pause, ps, restart, resume, run as run_command, tray, uninstall};
 use context::Context;
@@ -59,7 +60,18 @@ pub enum Command {
     Tray,
 }
 
-pub async fn route(cli: Cli) -> Result<()> {
+/// Synchronous entry point. `tray` is routed before any Tokio runtime exists because `tao`'s
+/// event loop must own the main thread and builds its own short-lived runtimes per poll tick,
+/// which panics if one is already running. Everything else runs inside a runtime.
+pub fn run(cli: Cli) -> Result<()> {
+    if cli.info.is_none() && cli.command == Some(Command::Tray) {
+        let context = Context::new(cli.config)?;
+        return tray::run(&context);
+    }
+    Runtime::new()?.block_on(route(cli))
+}
+
+async fn route(cli: Cli) -> Result<()> {
     if let Some(topic) = cli.info {
         return info::run(topic.as_deref());
     }
@@ -89,7 +101,7 @@ async fn dispatch(
         Command::Restart { name } => restart::run(context, &name).await,
         Command::Pause { name } => pause::run(context, &name).await,
         Command::Resume { name } => resume::run(context, &name).await,
-        Command::Tray => tray::run(context),
+        Command::Tray => bail!("tray must run outside the async runtime"),
     }
 }
 

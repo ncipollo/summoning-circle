@@ -1,6 +1,7 @@
 //! Feature layer. All domain logic lives here, called from the cli layer.
 
 pub mod config;
+pub mod engine;
 pub mod info;
 pub mod kill;
 pub mod launchd;

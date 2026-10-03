@@ -79,6 +79,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "muda::Menu can only be created on the main thread; cargo test runs on workers"]
     fn build_adds_one_submenu_per_process_plus_a_separator_and_exit() {
         let records = vec![
             record("api", ProcessStatus::Running, false),

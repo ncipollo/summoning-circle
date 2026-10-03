@@ -29,10 +29,9 @@ impl Action {
             Some(Action::Restart(name.to_string()))
         } else if let Some(name) = id.strip_prefix(PAUSE_PREFIX) {
             Some(Action::Pause(name.to_string()))
-        } else if let Some(name) = id.strip_prefix(RESUME_PREFIX) {
-            Some(Action::Resume(name.to_string()))
         } else {
-            None
+            id.strip_prefix(RESUME_PREFIX)
+                .map(|name| Action::Resume(name.to_string()))
         }
     }
 
