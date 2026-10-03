@@ -2,12 +2,13 @@ mod commands;
 mod context;
 mod info;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use clap::{Parser, Subcommand};
+use tokio::runtime::Runtime;
 
-use commands::{install, killall, pause, ps, restart, resume, run as run_command, uninstall};
+use commands::{install, killall, pause, ps, restart, resume, run as run_command, tray, uninstall};
 use context::Context;
 
 #[derive(Debug, Parser)]
@@ -55,30 +56,52 @@ pub enum Command {
         /// Name of the process, as it appears in the config file
         name: String,
     },
+    /// Launch a persistent macOS menu-bar icon for the tracked processes
+    Tray,
 }
 
-pub async fn route(cli: Cli) -> Result<()> {
+/// Synchronous entry point. `tray` is routed before any Tokio runtime exists because `tao`'s
+/// event loop must own the main thread and builds its own short-lived runtimes per poll tick,
+/// which panics if one is already running. Everything else runs inside a runtime.
+pub fn run(cli: Cli) -> Result<()> {
+    if cli.info.is_none() && cli.command == Some(Command::Tray) {
+        let context = Context::new(cli.config)?;
+        return tray::run(&context);
+    }
+    Runtime::new()?.block_on(route(cli))
+}
+
+async fn route(cli: Cli) -> Result<()> {
     if let Some(topic) = cli.info {
         return info::run(topic.as_deref());
     }
 
     let command = cli.command.ok_or_else(|| {
         anyhow!(
-            "a subcommand is required: install, uninstall, run, ps, killall, restart, pause, resume"
+            "a subcommand is required: install, uninstall, run, ps, killall, restart, pause, resume, tray"
         )
     })?;
     let config_override = cli.config.clone();
     let context = Context::new(cli.config)?;
 
+    dispatch(command, &context, config_override.as_deref()).await
+}
+
+async fn dispatch(
+    command: Command,
+    context: &Context,
+    config_override: Option<&Path>,
+) -> Result<()> {
     match command {
-        Command::Install => install::run(&context, config_override.as_deref()),
+        Command::Install => install::run(context, config_override),
         Command::Uninstall => uninstall::run(),
-        Command::Run => run_command::run(&context).await,
-        Command::Ps { json } => ps::run(&context, json).await,
-        Command::Killall => killall::run(&context).await,
-        Command::Restart { name } => restart::run(&context, &name).await,
-        Command::Pause { name } => pause::run(&context, &name).await,
-        Command::Resume { name } => resume::run(&context, &name).await,
+        Command::Run => run_command::run(context).await,
+        Command::Ps { json } => ps::run(context, json).await,
+        Command::Killall => killall::run(context).await,
+        Command::Restart { name } => restart::run(context, &name).await,
+        Command::Pause { name } => pause::run(context, &name).await,
+        Command::Resume { name } => resume::run(context, &name).await,
+        Command::Tray => bail!("tray must run outside the async runtime"),
     }
 }
 
@@ -198,6 +221,13 @@ mod tests {
                 name: "api".to_string()
             })
         );
+    }
+
+    #[test]
+    fn parses_tray_command() {
+        let cli = Cli::parse_from(["summoning-circle", "tray"]);
+
+        assert_eq!(cli.command, Some(Command::Tray));
     }
 
     #[test]

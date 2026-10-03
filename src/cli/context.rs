@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
+use summoning_circle::feature::engine::Paths;
 
 const DATA_DIR_NAME: &str = ".summoning-circle";
 const CONFIG_FILE_NAME: &str = "config.toml";
@@ -15,6 +16,14 @@ pub struct Context {
 }
 
 impl Context {
+    pub fn engine_paths(&self) -> Paths {
+        Paths {
+            config_path: self.config_path.clone(),
+            db_path: self.db_path.clone(),
+            log_dir: self.log_dir.clone(),
+        }
+    }
+
     pub fn new(config_override: Option<PathBuf>) -> Result<Self> {
         let home =
             dirs::home_dir().context("could not resolve the current user's home directory")?;

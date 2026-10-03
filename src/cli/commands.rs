@@ -5,4 +5,5 @@ pub mod ps;
 pub mod restart;
 pub mod resume;
 pub mod run;
+pub mod tray;
 pub mod uninstall;
