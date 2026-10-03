@@ -10,3 +10,4 @@ pub mod ps;
 pub mod restart;
 pub mod store;
 pub mod supervisor;
+pub mod tray;
