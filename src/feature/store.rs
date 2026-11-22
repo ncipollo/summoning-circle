@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
 use chrono::Utc;
+use sqlx::AssertSqlSafe;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool};
 
 pub use record::{ProcessRecord, ProcessStatus, SupervisorRecord, TrackedPid};
@@ -134,11 +135,14 @@ impl Store {
     /// Removes tracked processes whose name is not in `keep`.
     pub async fn remove_missing(&self, keep: &[&str]) -> Result<()> {
         let placeholders = keep.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-        let sql = format!("DELETE FROM processes WHERE name NOT IN ({placeholders})");
+        // Safe: the only interpolated text is a run of `?` placeholders; names are bound.
+        let sql = AssertSqlSafe(format!(
+            "DELETE FROM processes WHERE name NOT IN ({placeholders})"
+        ));
 
         let query = keep
             .iter()
-            .fold(sqlx::query(&sql), |query, name| query.bind(*name));
+            .fold(sqlx::query(sql), |query, name| query.bind(*name));
         query
             .execute(&self.pool)
             .await

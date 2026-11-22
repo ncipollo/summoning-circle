@@ -21,6 +21,6 @@ jobs:
       - name: publish immutable release
         uses: ncipollo/release-action@v1.21.0
         with:
-          artifacts: target/release/summoning-circle
+          artifacts: target/release/summon
           generateReleaseNotes: 'true'
           immutableCreate: 'true'
